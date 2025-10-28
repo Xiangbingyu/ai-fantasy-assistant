@@ -19,3 +19,11 @@ source .venv/bin/activate
 # 安装项目依赖
 pip install -r requirements.txt
 ```
+
+### 3. 运行项目
+
+```bash
+python -m backend.run
+cd frontend
+npm run dev
+```
