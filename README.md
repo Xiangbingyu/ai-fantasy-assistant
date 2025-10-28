@@ -25,5 +25,7 @@ pip install -r requirements.txt
 ```bash
 python -m backend.run
 cd frontend
-npm run dev
+npm install
+npm run build
+npm start
 ```
