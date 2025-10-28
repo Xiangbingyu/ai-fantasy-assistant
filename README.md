@@ -4,13 +4,13 @@
 
 ```bash
 # 创建虚拟环境
-python -m venv venv
+python -m venv .venv
 
 # 激活虚拟环境
 # Windows
-venv\Scripts\activate
+.venv\Scripts\activate
 # macOS/Linux
-source venv/bin/activate
+source .venv/bin/activate
 ```
 
 ### 2. 安装依赖
