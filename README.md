@@ -1,28 +1,20 @@
 ## 如何使用
 
-### 1. 创建和激活虚拟环境
+### 1. 构筑后端项目
 
 ```bash
+cd backend
 python -m venv .venv
-
-# Windows
 .venv\Scripts\activate
-# macOS/Linux
-source .venv/bin/activate
-```
-
-### 2. 安装依赖
-
-```bash
 pip install -r requirements.txt
 ```
 
-### 3. 运行后端
+### 2. 运行后端
 ```bash
-python -m backend.run
+python run.py
 ```
 
-### 4. 构筑前端项目
+### 3. 构筑前端项目
 
 ```bash
 cd frontend
@@ -30,7 +22,7 @@ npm install
 npm run build
 ```
 
-### 5. 运行前端
+### 4. 运行前端
 ```bash
 npm start
 ```
