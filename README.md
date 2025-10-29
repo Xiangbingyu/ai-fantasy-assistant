@@ -4,9 +4,7 @@
 
 ```bash
 cd backend
-python -m venv .venv
-.venv\Scripts\activate
-
+conda create -n ai-fantasy-assistant python=3.11
 conda activate ai-fantasy-assistant
 pip install -r requirements.txt
 ```
