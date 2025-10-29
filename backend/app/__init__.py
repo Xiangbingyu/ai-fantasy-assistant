@@ -1,7 +1,7 @@
 import os
 from flask import Flask, jsonify
 from flask_cors import CORS
-from app.routes.chat import chat_bp
+from app.routes.llm import llm_bp
 
 def create_app() -> Flask:
     static_folder = os.path.join(os.path.dirname(__file__), "..", "frontend")
@@ -9,7 +9,7 @@ def create_app() -> Flask:
     CORS(app)  # 允许跨域请求
 
     # 注册路由蓝图
-    app.register_blueprint(chat_bp)
+    app.register_blueprint(llm_bp)
 
     @app.route("/api/status")
     def status():
