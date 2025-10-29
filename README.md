@@ -6,6 +6,8 @@
 cd backend
 python -m venv .venv
 .venv\Scripts\activate
+
+conda activate ai-fantasy-assistant
 pip install -r requirements.txt
 ```
 

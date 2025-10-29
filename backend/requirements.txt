@@ -1,1 +1,4 @@
 Flask
+zai-sdk
+flask-cors
+python-dotenv
