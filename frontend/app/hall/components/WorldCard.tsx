@@ -39,7 +39,7 @@ export default function WorldCard({ world, onClick }: { world: World; onClick: (
                 
                 <div className="mt-3 flex justify-between items-center text-xs text-gray-500 dark:text-gray-400">
                     <span>热度: {world.popularity}</span>
-                    <span>更新于: {world.update_time}</span>
+                    <span>创建于: {world.create_time}</span>
                 </div>
             </div>
         </div>

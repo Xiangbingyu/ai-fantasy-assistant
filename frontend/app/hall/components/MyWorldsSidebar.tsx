@@ -30,7 +30,7 @@ export default function MyWorldsSidebar({ myWorlds, onSelectWorld }: MyWorldsSid
                                             </span>
                                         </div>
                                         <span className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-                                            最近访问: {world.last_access_time}
+                                            创建时间: {world.create_time}
                                         </span>
                                     </button>
                                 </li>

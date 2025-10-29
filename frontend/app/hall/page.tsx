@@ -17,11 +17,13 @@ const mockWorlds: World[] = [
         is_public: true,
         worldview: '一个充满魔法与神秘生物的奇幻世界，各个魔法派系之间的权力斗争正在上演...',
         master_setting: '大法师协会设定与权力结构',
-        main_characters: '艾琳、罗兰、西格尔',
+        main_characters: [
+            { name: '艾琳', background: '天赋异禀的女法师，追寻失落的魔法源泉' },
+            { name: '罗兰', background: '王国骑士，忠于荣耀，内心矛盾重重' },
+            { name: '西格尔', background: '游侠，通晓秘境传说与古文' }
+        ],
         origin_world_id: null,
-        last_access_time: '2023-11-16T10:00:00Z',
         create_time: '2023-11-01T08:00:00Z',
-        update_time: '2023-11-15T12:00:00Z',
         popularity: 1254
     },
     {
@@ -32,11 +34,12 @@ const mockWorlds: World[] = [
         is_public: true,
         worldview: '公元2145年，人类开始星际殖民，在遥远的阿尔法星系遇到了神秘的外星文明...',
         master_setting: '联合殖民委员会与飞船 AI 设定',
-        main_characters: '凯伦、阿尔法信使',
+        main_characters: [
+            { name: '凯伦', background: '殖民舰队指挥官，冷静理性' },
+            { name: '阿尔法信使', background: '外星文明的中介，动机成谜' }
+        ],
         origin_world_id: null,
-        last_access_time: '2023-11-14T09:00:00Z',
         create_time: '2023-10-28T08:00:00Z',
-        update_time: '2023-11-14T16:00:00Z',
         popularity: 987
     },
     {
@@ -47,11 +50,12 @@ const mockWorlds: World[] = [
         is_public: true,
         worldview: '梦回大唐长安，见证盛世繁华与暗流涌动，体验古代文人墨客的风雅生活...',
         master_setting: '长安府衙与市井文化设定',
-        main_characters: '子安、如烟',
+        main_characters: [
+            { name: '子安', background: '书生出身的巡官，恪守礼法' },
+            { name: '如烟', background: '名伎，擅琴棋书画，暗藏机智' }
+        ],
         origin_world_id: null,
-        last_access_time: '2023-11-12T11:00:00Z',
         create_time: '2023-10-15T08:00:00Z',
-        update_time: '2023-11-12T18:00:00Z',
         popularity: 1567
     },
     {
@@ -62,11 +66,12 @@ const mockWorlds: World[] = [
         is_public: false,
         worldview: '一所特殊的高中，学生们都拥有不同的超能力，日常与非日常交织的校园生活...',
         master_setting: '学生会与异能等级设定',
-        main_characters: '凌风、夏清',
+        main_characters: [
+            { name: '凌风', background: '高三学生，觉醒风系异能' },
+            { name: '夏清', background: '学生会副会长，能力为心灵感应' }
+        ],
         origin_world_id: null,
-        last_access_time: '2023-11-10T10:20:00Z',
         create_time: '2023-10-10T08:00:00Z',
-        update_time: '2023-11-10T12:00:00Z',
         popularity: 842
     },
     {
@@ -77,11 +82,12 @@ const mockWorlds: World[] = [
         is_public: true,
         worldview: '丧尸病毒爆发后的世界，幸存者们如何在废墟中挣扎求生，重建文明...',
         master_setting: '避难所与资源配给设定',
-        main_characters: '牧野、珊',
+        main_characters: [
+            { name: '牧野', background: '前消防员，团队的守护者' },
+            { name: '珊', background: '药剂师，擅长救治与配药' }
+        ],
         origin_world_id: null,
-        last_access_time: '2023-11-09T08:00:00Z',
         create_time: '2023-09-30T08:00:00Z',
-        update_time: '2023-11-09T15:00:00Z',
         popularity: 1123
     },
     {
@@ -92,11 +98,12 @@ const mockWorlds: World[] = [
         is_public: false,
         worldview: '一个快意恩仇的武侠世界，各大门派纷争不断，武林秘籍重现江湖...',
         master_setting: '门派谱系与江湖规矩设定',
-        main_characters: '青迟、顾行云',
+        main_characters: [
+            { name: '青迟', background: '剑客，练就快剑绝技' },
+            { name: '顾行云', background: '医者游侠，济世救人' }
+        ],
         origin_world_id: null,
-        last_access_time: '2023-11-08T07:45:00Z',
         create_time: '2023-09-20T08:00:00Z',
-        update_time: '2023-11-08T20:00:00Z',
         popularity: 756
     }
 ];
@@ -131,7 +138,8 @@ export default function WorldHall() {
             if (sortBy === '热度') {
                 return b.popularity - a.popularity;
             } else if (sortBy === '更新时间') {
-                return new Date(b.update_time).getTime() - new Date(a.update_time).getTime();
+                // World 不再有 update_time，这里以 create_time 代替“最新”
+                return new Date(b.create_time).getTime() - new Date(a.create_time).getTime();
             }
             return 0;
         });
@@ -141,7 +149,7 @@ export default function WorldHall() {
     const currentUserId = 1;
     const myWorlds = mockWorlds
         .filter(world => world.user_id === currentUserId)
-        .sort((a, b) => new Date(b.last_access_time).getTime() - new Date(a.last_access_time).getTime());
+        .sort((a, b) => new Date(b.create_time).getTime() - new Date(a.create_time).getTime());
 
     // 进入创作
     const startCreation = (worldId: number) => {
