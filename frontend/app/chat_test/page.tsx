@@ -3,23 +3,22 @@ import { useState } from 'react';
 import Navbar from '../hall/components/Navbar';
 
 export default function ChatPage() {
-  const [messages, setMessages] = useState([
-    { role: "system", content: "你是一个奇幻世界创作助手，帮助完善世界观设定。" }
-  ]);
+  // 历史消息仅由前端维护，系统提示词不在这里初始化
+  const [messages, setMessages] = useState<any[]>([]);
   const [userInput, setUserInput] = useState("");
   const [loading, setLoading] = useState(false);
 
   const handleSend = async () => {
     if (!userInput.trim() || loading) return;
 
-    // 添加用户消息
+    // 添加用户消息到历史
     const newMessages = [...messages, { role: "user", content: userInput }];
     setMessages(newMessages);
     setLoading(true);
     setUserInput("");
 
     try {
-      // 调用后端大模型接口
+      // 仅发送历史消息，系统提示词由后端注入
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -30,7 +29,6 @@ export default function ChatPage() {
       if (data.error) {
         setMessages([...newMessages, { role: "assistant", content: `错误: ${data.error}` }]);
       } else {
-        // 添加AI回复
         setMessages([...newMessages, { role: "assistant", content: data.response }]);
       }
     } catch (e: any) {

@@ -315,6 +315,40 @@ npm start
     { "response": "你好，很高兴为你服务！" }
     ```
 
+- 方法与路径：POST `/api/chat/suggestions`
+  - 功能：基于历史对话生成 6 条下一条回复建议
+  - 请求体字段：
+    - `messages` 与 `/api/chat` 相同（历史消息数组）
+  - 请求示例：
+    - POST `http://localhost:5000/api/chat/suggestions`
+    - Body：
+      ```json
+      {
+        "messages": [
+          { "role": "system", "content": "你是一个奇幻世界创作助手，帮助完善世界观设定。" },
+          { "role": "user", "content": "我们先设定魔法体系的基本原则" },
+          { "role": "ai", "content": "好的，你希望魔法受哪些限制？" }
+        ]
+      }
+      ```
+  - 响应示例（200 OK）：
+    ```json
+    {
+      "suggestions": [
+        { "content": "魔法需消耗能量，如体力或法力值。" },
+        { "content": "不同职业掌握的魔法学派各有优劣。" },
+        { "content": "过度施法会产生副作用，比如精神恍惚。" },
+        { "content": "魔法效果受材料、阵式与环境影响。" },
+        { "content": "学习魔法需要导师与严格的学术体系。" },
+        { "content": "禁忌魔法存在，但代价极其高昂。" }
+      ]
+    }
+    ```
+  - 回退示例（模型未按 JSON 输出）：
+    ```json
+    { "raw": "[可能为纯文本的建议，请自行解析]" }
+    ```
+
 - 方法与路径：POST `/api/novel`
   - 功能：根据提示生成小说
   - 请求示例：
