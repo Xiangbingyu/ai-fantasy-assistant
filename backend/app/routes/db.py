@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify
-from app.models import db, World, Chapter, ConversationMessage, NovelRecord, UserWorld, WorldCharacter
+from app.models import db, World, Chapter, ConversationMessage, NovelRecord, UserWorld, WorldCharacter, User
+from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
 
 db_bp = Blueprint('db', __name__, url_prefix='/api/db')
@@ -139,4 +140,32 @@ def get_user_worlds_by_user_and_role():
         ]
         return jsonify(result)
     except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# 6. 注册或登录（POST）
+@db_bp.route('/auth', methods=['POST'])
+def register_or_login():
+    try:
+        data = request.get_json(silent=True) or request.form
+        username = data.get('username')
+        password = data.get('password')
+
+        if not username or not password:
+            return jsonify({'error': '缺少username或password参数'}), 400
+
+        user = User.query.filter_by(username=username).first()
+
+        if user is None:
+            hashed = generate_password_hash(password)
+            user = User(username=username, password=hashed)
+            db.session.add(user)
+            db.session.commit()
+            return jsonify({'user_id': user.id}), 201
+        else:
+            if check_password_hash(user.password, password):
+                return jsonify({'user_id': user.id}), 200
+            else:
+                return jsonify({'error': '密码错误'}), 401
+    except Exception as e:
+        db.session.rollback()
         return jsonify({'error': str(e)}), 500
