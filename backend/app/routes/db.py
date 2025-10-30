@@ -12,14 +12,13 @@ def get_all_worlds():
         worlds = World.query.all()
         result = []
         for world in worlds:
-            # 获取世界角色
+            # 加载并返回世界角色
             characters = [
                 {
                     'name': c.name,
                     'background': c.background
                 } for c in world.characters
             ]
-            
             result.append({
                 'id': world.id,
                 'user_id': world.user_id,
@@ -28,10 +27,10 @@ def get_all_worlds():
                 'is_public': world.is_public,
                 'worldview': world.worldview,
                 'master_setting': world.master_setting,
-                'main_characters': characters,
                 'origin_world_id': world.origin_world_id,
                 'create_time': world.create_time.isoformat(),
-                'popularity': world.popularity
+                'popularity': world.popularity,
+                'main_characters': characters
             })
         return jsonify(result)
     except Exception as e:
@@ -169,3 +168,73 @@ def register_or_login():
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
+
+@db_bp.route('/worlds', methods=['POST'])
+def create_world():
+    data = request.get_json(silent=True) or request.form
+    world = World(
+        user_id=data.get('user_id'),
+        name=data.get('name'),
+        tags=data.get('tags'),
+        is_public=data.get('is_public'),
+        worldview=data.get('worldview'),
+        master_setting=data.get('master_setting'),
+        origin_world_id=data.get('origin_world_id'),
+        popularity=data.get('popularity'),
+    )
+    db.session.add(world)
+    db.session.flush()
+
+    characters = data.get('characters') or []
+    if isinstance(characters, list):
+        for ch in characters:
+            wc = WorldCharacter(
+                world_id=world.id,
+                name=(ch.get('name') if isinstance(ch, dict) else None),
+                background=(ch.get('background') if isinstance(ch, dict) else None)
+            )
+            db.session.add(wc)
+
+    db.session.commit()
+    return jsonify({
+        'id': world.id,
+        'user_id': world.user_id,
+        'name': world.name,
+        'tags': world.tags,
+        'is_public': world.is_public,
+        'worldview': world.worldview,
+        'master_setting': world.master_setting,
+        'main_characters': [
+            {'name': c.name, 'background': c.background} for c in world.characters
+        ],
+        'origin_world_id': world.origin_world_id,
+        'create_time': world.create_time.isoformat() if world.create_time else None,
+        'popularity': world.popularity
+    }), 201
+
+@db_bp.route('/chapters', methods=['POST'])
+def create_chapter():
+    data = request.get_json(silent=True) or request.form
+    chapter = Chapter(
+        world_id=data.get('world_id'),
+        creator_user_id=data.get('creator_user_id'),
+        name=data.get('name'),
+        opening=data.get('opening'),
+        background=data.get('background'),
+        is_default=data.get('is_default'),
+        origin_chapter_id=data.get('origin_chapter_id'),
+        create_time=data.get('create_time'),
+    )
+    db.session.add(chapter)
+    db.session.commit()
+    return jsonify({
+        'id': chapter.id,
+        'world_id': chapter.world_id,
+        'creator_user_id': chapter.creator_user_id,
+        'name': chapter.name,
+        'opening': chapter.opening,
+        'background': chapter.background,
+        'is_default': chapter.is_default,
+        'origin_chapter_id': chapter.origin_chapter_id,
+        'create_time': chapter.create_time.isoformat() if hasattr(chapter.create_time, 'isoformat') else chapter.create_time
+    }), 201

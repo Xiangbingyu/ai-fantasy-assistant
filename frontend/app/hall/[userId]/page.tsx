@@ -8,7 +8,7 @@ import FilterBar from '../components/FilterBar';
 import MyWorldsSidebar from '../components/MyWorldsSidebar';
 import WorldCard from '../components/WorldCard';
 
-const tags = ['#魔法', '#末世', '#科幻', '#古风', '#校园', '#武侠', '#异能', '#历史', '#太空'];
+const tags = ['魔法', '末世', '科幻', '古风', '校园', '武侠', '异能', '历史', '太空'];
 
 export default function WorldHall() {
     const [searchQuery, setSearchQuery] = useState('');
@@ -19,11 +19,10 @@ export default function WorldHall() {
     const [loading, setLoading] = useState(true); // 统一管理加载状态
     const [error, setError] = useState<string | null>(null);
 
-    // 关键修复：用 useParams 获取动态路由参数（自动解包 Promise）
     const params = useParams<{ userId: string }>();
-    const currentUserId = Number(params.userId || '0'); // 容错：避免空值转换错误
+    const currentUserId = Number(params.userId || '0');
 
-    // 1. 获取所有公开世界（仅加载一次）
+    // 1. 获取所有公开世界
     useEffect(() => {
         const fetchAllWorlds = async () => {
             try {
@@ -42,9 +41,8 @@ export default function WorldHall() {
         fetchAllWorlds();
     }, []);
 
-    // 2. 获取当前用户的世界（依赖 userId 和 所有世界数据）
+    // 2. 获取当前用户的世界
     useEffect(() => {
-        // 容错：如果 userId 无效，直接停止加载
         if (isNaN(currentUserId) || currentUserId === 0) {
             setError('无效的用户ID');
             setLoading(false);
@@ -82,9 +80,9 @@ export default function WorldHall() {
         if (allWorlds.length > 0) {
             fetchUserWorlds();
         }
-    }, [currentUserId, allWorlds]); // 依赖变化时重新请求
+    }, [currentUserId, allWorlds]);
 
-    // 筛选逻辑（基于API获取的真实数据）
+    // 筛选逻辑
     const filteredWorlds = allWorlds
         .filter(world => {
             if (!world.is_public) return false;

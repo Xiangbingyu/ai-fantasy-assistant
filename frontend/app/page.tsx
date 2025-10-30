@@ -16,7 +16,7 @@ export default function LoginPage() {
         setError(null);
 
         try {
-            const res = await fetch('http://127.0.0.1:5000/api/db/auth', {
+            const res = await fetch('/api/db/auth', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username, password }),
@@ -25,10 +25,7 @@ export default function LoginPage() {
             const data = await res.json();
 
             if (res.ok && data.user_id) {
-                // 若 hall 使用动态路由，请确保目录为 /app/hall/[userId]/page.tsx
                 router.push(`/hall/${data.user_id}`);
-                // 如果你的 hall 仍是固定 /hall，可改为：
-                // router.push(`/hall?user_id=${data.user_id}`);
             } else {
                 setError(data?.error || '登录失败');
             }
