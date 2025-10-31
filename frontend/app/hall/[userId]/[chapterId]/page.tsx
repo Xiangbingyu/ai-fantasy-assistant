@@ -19,11 +19,16 @@ export default function ChapterPage() {
   const [editText, setEditText] = useState<string>('');
   const [saving, setSaving] = useState<boolean>(false);
 
-  // 新增：占位气泡临时ID序列与初始化标记
+  // 建议面板状态
+  const [suggestions, setSuggestions] = useState<Array<{ content: string }>>([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState<boolean>(false);
+  const [suggestionsError, setSuggestionsError] = useState<string | null>(null);
+
+  // 占位气泡临时ID序列与初始化标记
   const [tempIdSeq, setTempIdSeq] = useState<number>(-1);
   const [initializedInput, setInitializedInput] = useState<boolean>(false);
 
-  // 新增：插入一个用于输入的空气泡（占位）并进入编辑模式
+  // 插入一个用于输入的空气泡（占位）并进入编辑模式
   const addEmptyInputBubble = () => {
     const tempId = tempIdSeq;
     const placeholder: ConversationMessage = {
@@ -39,7 +44,7 @@ export default function ChapterPage() {
     setEditText('');
     setTempIdSeq((prev) => prev - 1);
   };
-  // 加载章节信息（后端暂未提供GET /chapters/:id，尝试请求并提供容错）
+  // 加载章节信息
   useEffect(() => {
     let cancelled = false;
     const loadChapter = async () => {
@@ -86,7 +91,7 @@ export default function ChapterPage() {
     };
   }, [chapterId]);
 
-  // 新增：首次进入页面后，消息加载完成即插入一个空气泡供用户输入
+  // 首次进入页面后，消息加载完成即插入一个空气泡供用户输入
   useEffect(() => {
     if (!loading && !error && !initializedInput) {
       addEmptyInputBubble();
@@ -114,9 +119,59 @@ export default function ChapterPage() {
     };
   }, [chapterId]);
 
+  // 根据当前可编辑气泡生成写作建议
+  const fetchSuggestions = async () => {
+    if (editingId == null) return;
+    setSuggestionsLoading(true);
+    setSuggestionsError(null);
+    try {
+      const editedMsg = messages.find((m) => m.id === editingId);
+      // 若正在编辑“用户气泡”（含占位），建议应基于其之前的历史，因此排除当前正在编辑的气泡
+      const baseMsgs =
+        editedMsg?.role === 'user' ? messages.filter((m) => m.id !== editingId) : messages;
+
+      const recent = baseMsgs.slice(Math.max(0, baseMsgs.length - 30));
+      const history = recent.map((m) => ({
+        role: m.role === 'ai' ? 'assistant' : 'user',
+        content: m.content,
+      }));
+
+      const res = await fetch(`http://localhost:5000/api/chat/suggestions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: history }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(
+          typeof data?.error === 'string' ? data.error : data?.error?.message || '建议接口错误'
+        );
+      }
+
+      if (Array.isArray(data?.suggestions)) {
+        setSuggestions(data.suggestions as Array<{ content: string }>);
+      } else if (typeof data?.raw === 'string') {
+        setSuggestions([{ content: data.raw }]);
+      } else {
+        setSuggestions([]);
+      }
+    } catch (e) {
+      setSuggestionsError(e instanceof Error ? e.message : '获取建议异常');
+    } finally {
+      setSuggestionsLoading(false);
+    }
+  };
+
+  // 当进入编辑态（包括首次创建输入气泡、AI回复后创建输入气泡、回溯进入编辑模式）自动拉取建议
+  useEffect(() => {
+    if (editingId != null) {
+      fetchSuggestions();
+    }
+  }, [editingId]);
+
   // 回溯：删除该消息及之后所有（数据库删除，前端保留当前行，并进入编辑模式）
   const handleRollback = async (fromId: number) => {
-    // 如果回溯的是占位输入气泡（负ID），仅前端移除，不调用后端
+    // 若回溯到占位气泡（负ID），仅前端移除并退出编辑
     if (fromId < 0) {
       setMessages((prev) => prev.filter((m) => m.id !== fromId));
       if (editingId === fromId) {
@@ -125,30 +180,19 @@ export default function ChapterPage() {
       }
       return;
     }
-
     try {
-      // 后端删除：删除该消息及之后所有
-      await fetch(`/api/db/chapters/${chapterId}/messages?id=${fromId}`, {
-        method: 'DELETE',
-      });
-
-      // 先拿到当前行内容与索引
+      await fetch(`/api/db/chapters/${chapterId}/messages?id=${fromId}`, { method: 'DELETE' });
       const currentIndex = messages.findIndex((m) => m.id === fromId);
       const current = currentIndex >= 0 ? messages[currentIndex] : undefined;
-
-      // 前端按索引截断：保留到当前行（含当前行），删除其后的所有项
+      // 前端按索引截断，删除其后的所有项（包括占位气泡）
       setMessages((prev) => {
         const idx = prev.findIndex((m) => m.id === fromId);
-        if (idx === -1) {
-          // 兜底：找不到索引时用旧逻辑，至少不会报错
-          return prev.filter((m) => m.id <= fromId);
-        }
+        if (idx === -1) return prev.filter((m) => m.id <= fromId);
         return prev.slice(0, idx + 1);
       });
-
-      // 进入编辑模式
       setEditingId(fromId);
       setEditText(current?.content ?? '');
+      // 进入编辑态后，建议获取将由 useEffect 自动触发
     } catch (e) {
       console.error(e);
     }
@@ -227,8 +271,8 @@ export default function ChapterPage() {
       // 在前端追加AI气泡
       setMessages((prev) => [...prev, createdAiMsg]);
 
-      // 新增：AI回复后，立即插入一个新的空气泡让用户继续输入
-      addEmptyInputBubble();
+      // AI回复后，立即插入一个新的空气泡让用户继续输入
+      addEmptyInputBubble(); // 进入编辑态后 useEffect 会自动拉取建议
     } catch (e) {
       setError(e instanceof Error ? e.message : '提交异常');
     } finally {
@@ -426,6 +470,54 @@ export default function ChapterPage() {
       </div>
     );
   }, [messages, hoveredId, loading, error, editingId, editText, saving]);
+  // 新增：建议面板（位于写作区与右侧栏之间）
+  const suggestionPanel = useMemo(() => {
+    if (editingId == null) return null;
+    return (
+      <aside
+        style={{
+          width: 280,
+          borderLeft: '1px solid #e5e7eb',
+          borderRight: '1px solid #e5e7eb',
+          background: '#f8fafc',
+          padding: 12,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 8,
+        }}
+      >
+        <div style={{ fontWeight: 600, fontSize: 16 }}>灵感建议</div>
+        {suggestionsLoading ? (
+          <div style={{ color: '#6b7280' }}>生成建议中...</div>
+        ) : suggestionsError ? (
+          <div style={{ color: '#ef4444' }}>{suggestionsError}</div>
+        ) : suggestions.length === 0 ? (
+          <div style={{ color: '#6b7280' }}>暂无建议</div>
+        ) : (
+          suggestions.map((s, idx) => (
+            <button
+              key={idx}
+              type="button"
+              onClick={() => setEditText(s.content)}
+              style={{
+                textAlign: 'left',
+                padding: '8px 10px',
+                border: '1px solid #e5e7eb',
+                borderRadius: 6,
+                background: '#ffffff',
+                color: '#111827',
+                cursor: 'pointer',
+              }}
+              title="点击将建议填入输入气泡"
+            >
+              {s.content}
+            </button>
+          ))
+        )}
+      </aside>
+    );
+  }, [editingId, suggestions, suggestionsLoading, suggestionsError]);
+
   return (
     <div
       style={{
@@ -435,6 +527,7 @@ export default function ChapterPage() {
       }}
     >
       {paper}
+      {suggestionPanel}
       {sidebar}
     </div>
   );
