@@ -14,7 +14,7 @@ def chat():
         data = request.get_json(silent=True) or {}
         history = data.get("messages") or []
 
-        system_prompt = "你是一个奇幻世界创作助手，帮助完善世界观设定。"
+        system_prompt = "你是一个奇幻世界创作助手，根据对话内容以及世界观，角色设定，章节背景，扮演角色来补充一句对话内容，保持对话的连贯性。"
 
         # 新增：从请求体获取上下文字段并组装为第二条 system 消息
         worldview = data.get("worldview")
