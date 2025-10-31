@@ -25,6 +25,10 @@ export default function ChapterPage() {
   const [editText, setEditText] = useState<string>('');
   const [saving, setSaving] = useState<boolean>(false);
 
+  // 新增：故事弹窗相关状态
+  const [selectedNovel, setSelectedNovel] = useState<NovelRecord | null>(null);
+  const [isNovelModalOpen, setIsNovelModalOpen] = useState<boolean>(false);
+
   // 建议面板状态
   const [suggestions, setSuggestions] = useState<Array<{ content: string }>>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState<boolean>(false);
@@ -33,6 +37,18 @@ export default function ChapterPage() {
   // 占位气泡临时ID序列与初始化标记
   const [tempIdSeq, setTempIdSeq] = useState<number>(-1);
   const [initializedInput, setInitializedInput] = useState<boolean>(false);
+
+  // 打开故事详情弹窗
+  const openNovelModal = (novel: NovelRecord) => {
+    setSelectedNovel(novel);
+    setIsNovelModalOpen(true);
+  };
+
+  // 关闭故事详情弹窗
+  const closeNovelModal = () => {
+    setIsNovelModalOpen(false);
+    setSelectedNovel(null);
+  };
 
   // 插入一个用于输入的空气泡（占位）并进入编辑模式
   const addEmptyInputBubble = () => {
@@ -50,6 +66,7 @@ export default function ChapterPage() {
     setEditText('');
     setTempIdSeq((prev) => prev - 1);
   };
+
   // 加载章节信息
   useEffect(() => {
     let cancelled = false;
@@ -307,6 +324,142 @@ export default function ChapterPage() {
     }
   };
 
+  // 新增：生成故事状态与预览
+  const [generatingStory, setGeneratingStory] = useState<boolean>(false);
+  const [generateStoryError, setGenerateStoryError] = useState<string | null>(null);
+  const [generatedStoryContent, setGeneratedStoryContent] = useState<string | null>(null);
+  const [generateStoryTitle, setGenerateStoryTitle] = useState<string | null>(null);
+
+  // 生成故事逻辑
+  const handleGenerateStory = async () => {
+    if (generatingStory) return;
+    setGeneratingStory(true);
+    setGenerateStoryError(null);
+    try {
+      // 1) 拉取全部对话内容并拼接为 prompt
+      const msgRes = await fetch(`/api/db/chapters/${chapterId}/messages`);
+      const msgs = (await msgRes.json()) as ConversationMessage[];
+      if (!msgRes.ok) throw new Error('获取消息失败');
+      const prompt = msgs.map((m) => m.content).join('\n');
+
+      // 2) 生成故事（调用后端 /api/novel）
+      const novelRes = await fetch(`http://localhost:5000/api/novel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt,
+          worldview: worldContext?.worldview,
+          master_sitting: worldContext?.master_sitting,
+          main_characters: worldContext?.main_characters,
+          background: chapter?.background,
+        }),
+      });
+      const novelData = await novelRes.json();
+      if (!novelRes.ok) {
+        const msg =
+          typeof novelData?.error === 'string'
+            ? novelData.error
+            : novelData?.error?.message || '生成故事失败';
+        throw new Error(msg);
+      }
+      const content: string = novelData?.response ?? novelData?.content ?? '';
+      if (!content) throw new Error('生成结果为空');
+
+      // 生成标题（取第一行或默认）
+      const title =
+        (content.split('\n').find((line) => line.trim().length) || 'AI故事').slice(0, 50);
+
+      // 3) 保存到数据库
+      const saveRes = await fetch(`/api/db/chapters/${chapterId}/novels`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: Number(userId),
+          title,
+          content,
+        }),
+      });
+      const saved = await saveRes.json();
+      if (!saveRes.ok) {
+        throw new Error(saved?.error || '保存故事失败');
+      }
+
+      // 4) 更新前端：预览 + 列表追加
+      setGeneratedStoryContent(content);
+      setGenerateStoryTitle(title);
+      setNovels((prev) => [saved, ...prev]);
+    } catch (e) {
+      setGenerateStoryError(e instanceof Error ? e.message : '生成故事异常');
+    } finally {
+      setGeneratingStory(false);
+    }
+  };
+
+  // 故事详情弹窗组件
+  const NovelDetailModal = () => {
+    if (!isNovelModalOpen || !selectedNovel) return null;
+
+    return (
+      <div 
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 1000,
+          padding: '20px',
+        }}
+        onClick={closeNovelModal}
+      >
+        <div 
+          style={{
+            backgroundColor: 'white',
+            borderRadius: '8px',
+            width: '100%',
+            maxWidth: '800px',
+            maxHeight: '90vh',
+            overflowY: 'auto',
+            padding: '24px',
+            boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)',
+          }}
+          onClick={(e) => e.stopPropagation()} // 防止点击内容区域关闭弹窗
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <h2 style={{ margin: 0, fontSize: '20px', color: '#111827' }}>
+              {selectedNovel.title || '未命名故事'}
+            </h2>
+            <button
+              onClick={closeNovelModal}
+              style={{
+                background: 'none',
+                border: 'none',
+                fontSize: '24px',
+                cursor: 'pointer',
+                color: '#6b7280',
+                padding: '4px',
+              }}
+            >
+              &times;
+            </button>
+          </div>
+          
+          <div style={{ color: '#6b7280', fontSize: '14px', marginBottom: '16px' }}>
+            创建时间: {new Date(selectedNovel.create_time).toLocaleString()}
+          </div>
+          
+          <div style={{ whiteSpace: 'pre-wrap', lineHeight: '1.6', color: '#111827' }}>
+            {selectedNovel.content}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const sidebar = useMemo(() => {
     return (
       <aside
@@ -365,6 +518,17 @@ export default function ChapterPage() {
                     borderRadius: 6,
                     padding: 8,
                     background: '#fff',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                  }}
+                  onClick={() => openNovelModal(n)}
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLDivElement).style.borderColor = '#93c5fd';
+                    (e.currentTarget as HTMLDivElement).style.backgroundColor = '#f0f9ff';
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLDivElement).style.borderColor = '#e5e7eb';
+                    (e.currentTarget as HTMLDivElement).style.backgroundColor = '#fff';
                   }}
                 >
                   <div style={{ fontWeight: 500 }}>{n.title || '未命名故事'}</div>
@@ -375,25 +539,27 @@ export default function ChapterPage() {
           </div>
           <button
             type="button"
-            // 暂不写逻辑：占位按钮
-            onClick={() => {}}
+            onClick={handleGenerateStory}
             style={{
               marginTop: 8,
               padding: '8px 12px',
               borderRadius: 6,
               border: '1px solid #e5e7eb',
-              background: '#f9fafb',
-              cursor: 'not-allowed',
-              color: '#6b7280',
+              background: generatingStory ? '#f3f4f6' : '#f9fafb',
+              cursor: generatingStory ? 'not-allowed' : 'pointer',
+              color: generatingStory ? '#9ca3af' : '#374151',
             }}
-            disabled
+            disabled={generatingStory}
           >
-            生成故事（开发中）
+            {generatingStory ? '生成中...' : '生成故事'}
           </button>
+          {generateStoryError && (
+            <div style={{ color: '#ef4444', marginTop: 8 }}>{generateStoryError}</div>
+          )}
         </section>
       </aside>
     );
-  }, [chapter?.name, chapter?.background, novels, chapterId]);
+  }, [chapter?.name, chapter?.background, novels, chapterId, generatingStory, generateStoryError]);
 
   const paper = useMemo(() => {
     return (
@@ -418,6 +584,25 @@ export default function ChapterPage() {
             overflowY: 'auto',
           }}
         >
+          {generatedStoryContent && (
+            <section
+              style={{
+                border: '1px solid #e5e7eb',
+                borderRadius: 8,
+                padding: 12,
+                background: '#fff',
+                marginBottom: 12,
+              }}
+            >
+              <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 8 }}>
+                {generateStoryTitle || '生成故事预览'}
+              </div>
+              <div style={{ whiteSpace: 'pre-wrap', color: '#111827' }}>
+                {generatedStoryContent}
+              </div>
+            </section>
+          )}
+
           {loading ? (
             <div style={{ color: '#6b7280' }}>加载中...</div>
           ) : error ? (
@@ -489,8 +674,9 @@ export default function ChapterPage() {
         </div>
       </div>
     );
-  }, [messages, hoveredId, loading, error, editingId, editText, saving]);
-  // 新增：建议面板（位于写作区与右侧栏之间）
+  }, [messages, hoveredId, loading, error, editingId, editText, saving, generatedStoryContent, generateStoryTitle]);
+
+  // 建议面板（位于写作区与右侧栏之间）
   const suggestionPanel = useMemo(() => {
     if (editingId == null) return null;
     return (
@@ -549,6 +735,7 @@ export default function ChapterPage() {
       {paper}
       {suggestionPanel}
       {sidebar}
+      <NovelDetailModal />
     </div>
   );
 }
