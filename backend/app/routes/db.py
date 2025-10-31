@@ -36,6 +36,30 @@ def get_all_worlds():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+# 新增：按ID获取单个World详情（含角色）
+@db_bp.route('/worlds/<int:world_id>', methods=['GET'])
+def get_world_detail(world_id):
+    try:
+        world = World.query.get(world_id)
+        if world is None:
+            return jsonify({'error': '世界不存在'}), 404
+        characters = [{'name': c.name, 'background': c.background} for c in world.characters]
+        return jsonify({
+            'id': world.id,
+            'user_id': world.user_id,
+            'name': world.name,
+            'tags': world.tags,
+            'is_public': world.is_public,
+            'worldview': world.worldview,
+            'master_setting': world.master_setting,
+            'origin_world_id': world.origin_world_id,
+            'create_time': world.create_time.isoformat(),
+            'popularity': world.popularity,
+            'main_characters': characters
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 # 2. 获取指定World和creator_user_id对应的全部Chapter信息
 @db_bp.route('/worlds/<int:world_id>/chapters', methods=['GET'])
 def get_chapters_by_world_and_creator(world_id):
@@ -63,6 +87,27 @@ def get_chapters_by_world_and_creator(world_id):
             } for chapter in chapters
         ]
         return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# 新增：按ID获取单个Chapter详情（供前端拉取background与world_id）
+@db_bp.route('/chapters/<int:chapter_id>', methods=['GET'])
+def get_chapter_detail(chapter_id):
+    try:
+        chapter = Chapter.query.get(chapter_id)
+        if chapter is None:
+            return jsonify({'error': '章节不存在'}), 404
+        return jsonify({
+            'id': chapter.id,
+            'world_id': chapter.world_id,
+            'creator_user_id': chapter.creator_user_id,
+            'name': chapter.name,
+            'opening': chapter.opening,
+            'background': chapter.background,
+            'is_default': chapter.is_default,
+            'origin_chapter_id': chapter.origin_chapter_id,
+            'create_time': chapter.create_time.isoformat() if hasattr(chapter.create_time, 'isoformat') else chapter.create_time
+        })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -313,6 +358,51 @@ def delete_messages(chapter_id):
             'target_id': message_id
         }), 200
         
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@db_bp.route('/user-worlds', methods=['POST'])
+def create_user_world():
+    try:
+        data = request.get_json(silent=True) or request.form
+        user_id = data.get('user_id')
+        world_id = data.get('world_id')
+        role = data.get('role')
+        create_time_str = data.get('create_time')
+
+        # 基本校验
+        if user_id is None or world_id is None or role is None:
+            return jsonify({'error': '缺少user_id或world_id或role参数'}), 400
+        if role not in ['creator', 'participant', 'viewer']:
+            return jsonify({'error': '无效的role值'}), 400
+
+        # 处理时间（可选）
+        if create_time_str:
+            try:
+                create_time = datetime.fromisoformat(create_time_str)
+            except Exception as ve:
+                return jsonify({'error': f'时间格式错误: {str(ve)}'}), 400
+        else:
+            create_time = datetime.utcnow()
+
+        # 创建关系
+        uw = UserWorld(
+            user_id=int(user_id),
+            world_id=int(world_id),
+            role=role,
+            create_time=create_time
+        )
+        db.session.add(uw)
+        db.session.commit()
+
+        return jsonify({
+            'id': uw.id,
+            'user_id': uw.user_id,
+            'world_id': uw.world_id,
+            'role': uw.role,
+            'create_time': uw.create_time.isoformat()
+        }), 201
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500

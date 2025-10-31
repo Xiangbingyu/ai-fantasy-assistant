@@ -16,7 +16,30 @@ def chat():
 
         system_prompt = "你是一个奇幻世界创作助手，帮助完善世界观设定。"
 
-        messages = [{"role": "system", "content": system_prompt}] + history
+        # 新增：从请求体获取上下文字段并组装为第二条 system 消息
+        worldview = data.get("worldview")
+        master_sitting = data.get("master_sitting")
+        main_characters = data.get("main_characters")
+        background = data.get("background")
+
+        if isinstance(main_characters, (list, tuple)):
+            mc_text = ", ".join([str(x) for x in main_characters])
+        elif isinstance(main_characters, dict):
+            mc_text = json.dumps(main_characters, ensure_ascii=False)
+        else:
+            mc_text = str(main_characters) if main_characters is not None else ""
+
+        context_prompt = (
+            f"世界观：{worldview or ''}\n"
+            f"主控设定：{master_sitting or ''}\n"
+            f"主要角色：{mc_text}\n"
+            f"章节背景：{background or ''}"
+        )
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "system", "content": context_prompt},
+        ] + history
 
         response = client.chat.completions.create(
             model="glm-3-turbo",
@@ -47,7 +70,30 @@ def chat_suggestions():
             "不要输出额外解释或非JSON文本。风格：简洁自然、中文、避免重复。"
         )
 
-        messages = [{"role": "system", "content": suggest_prompt}] + history
+        # 新增：从请求体获取上下文字段并组装为第二条 system 消息
+        worldview = data.get("worldview")
+        master_sitting = data.get("master_sitting")
+        main_characters = data.get("main_characters")
+        background = data.get("background")
+
+        if isinstance(main_characters, (list, tuple)):
+            mc_text = ", ".join([str(x) for x in main_characters])
+        elif isinstance(main_characters, dict):
+            mc_text = json.dumps(main_characters, ensure_ascii=False)
+        else:
+            mc_text = str(main_characters) if main_characters is not None else ""
+
+        context_prompt = (
+            f"世界观：{worldview or ''}\n"
+            f"总设定（master_sitting）：{master_sitting or ''}\n"
+            f"主要角色：{mc_text}\n"
+            f"章节背景：{background or ''}"
+        )
+
+        messages = [
+            {"role": "system", "content": suggest_prompt},
+            {"role": "system", "content": context_prompt},
+        ] + history
 
         response = client.chat.completions.create(
             model="glm-3-turbo",
@@ -82,8 +128,29 @@ def generate_novel():
             "你是一位资深小说家，请根据以下提示创作一篇风格契合、详略得当、细节丰富的小说。"
         )
 
+        # 新增：从请求体获取上下文字段并组装为第二条 system 消息
+        worldview = data.get("worldview")
+        master_sitting = data.get("master_sitting")
+        main_characters = data.get("main_characters")
+        background = data.get("background")
+
+        if isinstance(main_characters, (list, tuple)):
+            mc_text = ", ".join([str(x) for x in main_characters])
+        elif isinstance(main_characters, dict):
+            mc_text = json.dumps(main_characters, ensure_ascii=False)
+        else:
+            mc_text = str(main_characters) if main_characters is not None else ""
+
+        context_prompt = (
+            f"世界观：{worldview or ''}\n"
+            f"主控设定：{master_sitting or ''}\n"
+            f"主要角色：{mc_text}\n"
+            f"章节背景：{background or ''}"
+        )
+
         messages = [
             {"role": "system", "content": system_prompt},
+            {"role": "system", "content": context_prompt},
             {"role": "user", "content": data["prompt"]}
         ]
 

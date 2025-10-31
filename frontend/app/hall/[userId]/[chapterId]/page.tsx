@@ -12,6 +12,12 @@ export default function ChapterPage() {
   const [chapter, setChapter] = useState<Partial<Chapter> | null>(null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [novels, setNovels] = useState<NovelRecord[]>([]);
+  // 新增：世界与章节上下文（供 LLM 使用）
+  const [worldContext, setWorldContext] = useState<{
+    worldview?: string;
+    master_sitting?: string; // 从 world.master_setting 映射
+    main_characters?: any;
+  } | null>(null);
   const [hoveredId, setHoveredId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -139,7 +145,14 @@ export default function ChapterPage() {
       const res = await fetch(`http://localhost:5000/api/chat/suggestions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: history }),
+        body: JSON.stringify({
+          messages: history,
+          // 新增：上下文字段
+          worldview: worldContext?.worldview,
+          master_sitting: worldContext?.master_sitting,
+          main_characters: worldContext?.main_characters,
+          background: chapter?.background,
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -241,7 +254,14 @@ export default function ChapterPage() {
       const chatRes = await fetch(`http://localhost:5000/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: history }),
+        body: JSON.stringify({
+          messages: history,
+          // 新增：上下文字段
+          worldview: worldContext?.worldview,
+          master_sitting: worldContext?.master_sitting,
+          main_characters: worldContext?.main_characters,
+          background: chapter?.background,
+        }),
       });
       const chatData = await chatRes.json();
       if (!chatRes.ok) {
