@@ -19,6 +19,26 @@ export default function ChapterPage() {
   const [editText, setEditText] = useState<string>('');
   const [saving, setSaving] = useState<boolean>(false);
 
+  // 新增：占位气泡临时ID序列与初始化标记
+  const [tempIdSeq, setTempIdSeq] = useState<number>(-1);
+  const [initializedInput, setInitializedInput] = useState<boolean>(false);
+
+  // 新增：插入一个用于输入的空气泡（占位）并进入编辑模式
+  const addEmptyInputBubble = () => {
+    const tempId = tempIdSeq;
+    const placeholder: ConversationMessage = {
+      id: tempId,
+      chapter_id: Number(chapterId),
+      user_id: Number(userId),
+      role: 'user',
+      content: '',
+      create_time: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, placeholder]);
+    setEditingId(tempId);
+    setEditText('');
+    setTempIdSeq((prev) => prev - 1);
+  };
   // 加载章节信息（后端暂未提供GET /chapters/:id，尝试请求并提供容错）
   useEffect(() => {
     let cancelled = false;
@@ -66,6 +86,14 @@ export default function ChapterPage() {
     };
   }, [chapterId]);
 
+  // 新增：首次进入页面后，消息加载完成即插入一个空气泡供用户输入
+  useEffect(() => {
+    if (!loading && !error && !initializedInput) {
+      addEmptyInputBubble();
+      setInitializedInput(true);
+    }
+  }, [loading, error, initializedInput]);
+
   // 加载小说记录
   useEffect(() => {
     let cancelled = false;
@@ -88,13 +116,36 @@ export default function ChapterPage() {
 
   // 回溯：删除该消息及之后所有（数据库删除，前端保留当前行，并进入编辑模式）
   const handleRollback = async (fromId: number) => {
+    // 如果回溯的是占位输入气泡（负ID），仅前端移除，不调用后端
+    if (fromId < 0) {
+      setMessages((prev) => prev.filter((m) => m.id !== fromId));
+      if (editingId === fromId) {
+        setEditingId(null);
+        setEditText('');
+      }
+      return;
+    }
+
     try {
+      // 后端删除：删除该消息及之后所有
       await fetch(`/api/db/chapters/${chapterId}/messages?id=${fromId}`, {
         method: 'DELETE',
       });
-      // 先找到当前行的原内容，再过滤掉后续行
-      const current = messages.find((m) => m.id === fromId);
-      setMessages((prev) => prev.filter((m) => m.id <= fromId));
+
+      // 先拿到当前行内容与索引
+      const currentIndex = messages.findIndex((m) => m.id === fromId);
+      const current = currentIndex >= 0 ? messages[currentIndex] : undefined;
+
+      // 前端按索引截断：保留到当前行（含当前行），删除其后的所有项
+      setMessages((prev) => {
+        const idx = prev.findIndex((m) => m.id === fromId);
+        if (idx === -1) {
+          // 兜底：找不到索引时用旧逻辑，至少不会报错
+          return prev.filter((m) => m.id <= fromId);
+        }
+        return prev.slice(0, idx + 1);
+      });
+
       // 进入编辑模式
       setEditingId(fromId);
       setEditText(current?.content ?? '');
@@ -136,7 +187,11 @@ export default function ChapterPage() {
         throw new Error('获取近30条消息失败');
       }
       const recent = allMsgs.slice(Math.max(0, allMsgs.length - 30));
-      const history = recent.map((m) => ({ role: m.role, content: m.content }));
+      // 修复：将后端'ai'角色映射为大模型所需'assistant'
+      const history = recent.map((m) => ({
+        role: m.role === 'ai' ? 'assistant' : 'user',
+        content: m.content,
+      }));
 
       // 3) 调用聊天接口，生成AI回复，并添加为下一行气泡；随后也入库
       const chatRes = await fetch(`http://localhost:5000/api/chat`, {
@@ -146,7 +201,11 @@ export default function ChapterPage() {
       });
       const chatData = await chatRes.json();
       if (!chatRes.ok) {
-        throw new Error(chatData?.error || '聊天接口调用失败');
+        const msg =
+          typeof chatData?.error === 'string'
+            ? chatData.error
+            : chatData?.error?.message || '聊天接口调用失败';
+        throw new Error(msg);
       }
       const aiContent: string = chatData.response ?? '';
 
@@ -167,6 +226,9 @@ export default function ChapterPage() {
 
       // 在前端追加AI气泡
       setMessages((prev) => [...prev, createdAiMsg]);
+
+      // 新增：AI回复后，立即插入一个新的空气泡让用户继续输入
+      addEmptyInputBubble();
     } catch (e) {
       setError(e instanceof Error ? e.message : '提交异常');
     } finally {
