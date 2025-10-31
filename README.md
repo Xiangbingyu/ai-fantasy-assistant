@@ -353,6 +353,44 @@ npm start
     ]
     ```
 
+- 方法与路径：POST `/api/db/chapters/{chapter_id}/novels`
+  - 功能：创建章节下的小说记录
+  - 请求体字段：
+    - `user_id` number（必填）
+    - `content` string（必填）
+    - `title?` string（可选）
+    - `create_time?` string（可选，ISO8601；不传则后端使用当前 UTC 时间）
+  - 请求示例：
+    - POST `http://localhost:5000/api/db/chapters/101/novels`
+    - Body：
+      ```json
+      {
+        "user_id": 5,
+        "content": "第一章：帝都的黄昏，阴谋渐起……",
+        "title": "帝都的黄昏",
+        "create_time": "2025-10-30T12:07:00"
+      }
+      ```
+  - 响应示例（201 Created）：
+    ```json
+    {
+      "id": 6001,
+      "chapter_id": 101,
+      "user_id": 5,
+      "title": "帝都的黄昏",
+      "content": "第一章：帝都的黄昏，阴谋渐起……",
+      "create_time": "2025-10-30T12:07:00Z"
+    }
+    ```
+  - 错误示例（缺少字段，400 Bad Request）：
+    ```json
+    { "error": "缺少user_id参数" }
+    ```
+  - 错误示例（时间格式错误，400 Bad Request）：
+    ```json
+    { "error": "时间格式错误: Invalid isoformat string: ..." }
+    ```
+
 ---
 
 ### User-Worlds

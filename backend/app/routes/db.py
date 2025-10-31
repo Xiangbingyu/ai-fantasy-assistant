@@ -155,6 +155,54 @@ def get_novels_by_chapter(chapter_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+# 新增：创建指定章节的NovelRecord
+@db_bp.route('/chapters/<int:chapter_id>/novels', methods=['POST'])
+def create_novel(chapter_id):
+    try:
+        data = request.get_json(silent=True) or request.form
+
+        # 验证必填字段
+        required_fields = ['user_id', 'content']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({'error': f'缺少{field}参数'}), 400
+
+        # 处理可选字段
+        title = data.get('title')
+        if 'create_time' in data:
+            try:
+                create_time = datetime.fromisoformat(data['create_time'])
+            except Exception as ve:
+                return jsonify({'error': f'时间格式错误: {str(ve)}'}), 400
+        else:
+            create_time = datetime.utcnow()
+
+        # 构建NovelRecord对象
+        novel = NovelRecord(
+            chapter_id=chapter_id,
+            user_id=data['user_id'],
+            title=title,
+            content=data['content'],
+            create_time=create_time
+        )
+
+        db.session.add(novel)
+        db.session.commit()
+
+        # 返回创建的记录
+        return jsonify({
+            'id': novel.id,
+            'chapter_id': novel.chapter_id,
+            'user_id': novel.user_id,
+            'title': novel.title,
+            'content': novel.content,
+            'create_time': novel.create_time.isoformat()
+        }), 201
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
 # 5. 获取指定user_id和role对应的全部UserWorld信息
 @db_bp.route('/user-worlds', methods=['GET'])
 def get_user_worlds_by_user_and_role():
