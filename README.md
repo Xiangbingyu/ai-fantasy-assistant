@@ -216,6 +216,73 @@ npm start
     ]
     ```
 
+- 方法与路径：POST `/api/db/chapters/{chapter_id}/messages`
+  - 功能：创建对话消息
+  - 请求体字段：
+    - `user_id` number（必填）
+    - `role` `'user' | 'ai'`（必填）
+    - `content` string（必填）
+    - `create_time?` string（可选，ISO8601；不传则后端使用当前 UTC 时间）
+  - 请求示例：
+    - POST `http://localhost:5000/api/db/chapters/101/messages`
+    - Body：
+      ```json
+      {
+        "user_id": 5,
+        "role": "user",
+        "content": "请继续讲述世界观的历史。",
+        "create_time": "2025-10-30T12:06:00Z"
+      }
+      ```
+  - 响应示例（201 Created）：
+    ```json
+    {
+      "id": 1003,
+      "chapter_id": 101,
+      "user_id": 5,
+      "role": "user",
+      "content": "请继续讲述世界观的历史。",
+      "create_time": "2025-10-30T12:06:00Z"
+    }
+    ```
+  - 错误示例（缺少字段，400 Bad Request）：
+    ```json
+    { "error": "缺少user_id参数" }
+    ```
+  - 错误示例（role 非法，400 Bad Request）：
+    ```json
+    { "error": "role必须为\"user\"或\"ai\"" }
+    ```
+  - 错误示例（时间格式错误，400 Bad Request）：
+    ```json
+    { "error": "时间格式错误: Invalid isoformat string: ..." }
+    ```
+
+- 方法与路径：DELETE `/api/db/chapters/{chapter_id}/messages?id={message_id}`
+  - 功能：删除指定章节下 ID 大于等于 `id` 的消息（批量删）
+  - 请求参数：
+    - `id` number（必填，可通过查询参数或 JSON 体传递）
+  - 请求示例（查询参数方式）：
+    - DELETE `http://localhost:5000/api/db/chapters/101/messages?id=1002`
+  - 请求示例（JSON 体方式）：
+    - DELETE `http://localhost:5000/api/db/chapters/101/messages`
+    - Body：
+      ```json
+      { "id": 1002 }
+      ```
+  - 响应示例（200 OK）：
+    ```json
+    {
+      "message": "成功删除2条消息",
+      "deleted_count": 2,
+      "chapter_id": 101,
+      "target_id": 1002
+    }
+    ```
+  - 错误示例（缺少参数，400 Bad Request）：
+    ```json
+    { "error": "缺少id参数" }
+    ```
 ---
 
 ### Novels

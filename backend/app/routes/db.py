@@ -238,3 +238,81 @@ def create_chapter():
         'origin_chapter_id': chapter.origin_chapter_id,
         'create_time': chapter.create_time.isoformat() if hasattr(chapter.create_time, 'isoformat') else chapter.create_time
     }), 201
+
+@db_bp.route('/chapters/<int:chapter_id>/messages', methods=['POST'])
+def create_message(chapter_id):
+    try:
+        data = request.get_json(silent=True) or request.form
+        
+        # 验证必填字段
+        required_fields = ['user_id', 'role', 'content']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({'error': f'缺少{field}参数'}), 400
+                
+        # 验证role合法性
+        if data['role'] not in ['user', 'ai']:
+            return jsonify({'error': 'role必须为"user"或"ai"'}), 400
+
+        # 构建消息对象
+        message = ConversationMessage(
+            chapter_id=chapter_id,
+            user_id=data['user_id'],
+            role=data['role'],
+            content=data['content'],
+            # 若未提供create_time则使用当前时间
+            create_time=datetime.fromisoformat(data['create_time']) if 'create_time' in data else datetime.utcnow()
+        )
+        
+        db.session.add(message)
+        db.session.commit()
+        
+        # 返回创建的消息详情
+        return jsonify({
+            'id': message.id,
+            'chapter_id': message.chapter_id,
+            'user_id': message.user_id,
+            'role': message.role,
+            'content': message.content,
+            'create_time': message.create_time.isoformat()
+        }), 201
+        
+    except ValueError as ve:
+        # 处理时间格式错误
+        return jsonify({'error': f'时间格式错误: {str(ve)}'}), 400
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+# 删除指定章节下大于等于指定ID的消息
+@db_bp.route('/chapters/<int:chapter_id>/messages', methods=['DELETE'])
+def delete_messages(chapter_id):
+    try:
+        # 获取请求参数（支持查询参数或JSON体）
+        message_id = request.args.get('id', type=int)
+        if not message_id:
+            # 尝试从JSON体获取
+            data = request.get_json(silent=True) or {}
+            message_id = data.get('id', type=int)
+        
+        if not message_id:
+            return jsonify({'error': '缺少id参数'}), 400
+        
+        # 查询并删除符合条件的消息（同章节且id >= 给定id）
+        deleted_count = ConversationMessage.query.filter(
+            ConversationMessage.chapter_id == chapter_id,
+            ConversationMessage.id >= message_id
+        ).delete(synchronize_session=False)
+        
+        db.session.commit()
+        
+        return jsonify({
+            'message': f'成功删除{deleted_count}条消息',
+            'deleted_count': deleted_count,
+            'chapter_id': chapter_id,
+            'target_id': message_id
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
