@@ -30,17 +30,12 @@ npm start
 ## 接口文档
 
 ### 基础信息
-- 后端基础地址：`http://localhost:5000`
 - DB 路由前缀：`/api/db`
 - LLM 路由前缀：`/api`
 - 通用请求头：`Content-Type: application/json`
 
----
-
 ### Worlds
 - 方法与路径：GET `/api/db/worlds`
-  - 功能：获取所有世界
-  - 请求参数：无
   - 请求示例：
     - GET `http://localhost:5000/api/db/worlds`
   - 响应示例（200 OK）：
@@ -65,7 +60,6 @@ npm start
     ]
     ```
 - 方法与路径：GET `/api/db/worlds/{world_id}`
-  - 功能：按 ID 获取单个世界详情（含角色）
   - 请求示例：
     - GET `http://localhost:5000/api/db/worlds/12`
   - 响应示例（200 OK）：
@@ -87,24 +81,8 @@ npm start
       ]
     }
     ```
-  - 错误示例（404 Not Found）：
-    ```json
-    { "error": "世界不存在" }
-    ```
 
 - 方法与路径：POST `/api/db/worlds`
-  - 功能：创建世界（可同时创建角色）
-  - 请求体字段：
-    - `user_id` number
-    - `name` string
-    - `tags` string[]（建议数组）
-    - `is_public` boolean
-    - `worldview` string
-    - `master_setting` string
-    - `origin_world_id` number | null
-    - `popularity` number
-    - `characters?` `{ name: string; background: string }[]`（可选，同步创建角色）
-    - 说明：当前实现中 `create_time` 由后端自动生成，忽略请求体同名字段
   - 请求示例：
     - POST `http://localhost:5000/api/db/worlds`
     - Body：
@@ -144,11 +122,8 @@ npm start
     }
     ```
 
----
-
 ### Chapters
 - 方法与路径：GET `/api/db/worlds/{world_id}/chapters`
-  - 功能：按世界和创建者获取章节
   - 查询参数：`creator_user_id`（必填，整数）
   - 请求示例：
     - GET `http://localhost:5000/api/db/worlds/12/chapters?creator_user_id=5`
@@ -168,12 +143,7 @@ npm start
       }
     ]
     ```
-  - 错误示例（缺少查询参数，400 Bad Request）：
-    ```json
-    { "error": "缺少creator_user_id参数" }
-    ```
 - 方法与路径：GET `/api/db/chapters/{chapter_id}`
-  - 功能：按 ID 获取单个章节详情
   - 请求示例：
     - GET `http://localhost:5000/api/db/chapters/101`
   - 响应示例（200 OK）：
@@ -190,22 +160,8 @@ npm start
       "create_time": "2025-10-30T12:05:00Z"
     }
     ```
-  - 错误示例（404 Not Found）：
-    ```json
-    { "error": "章节不存在" }
-    ```
 
 - 方法与路径：POST `/api/db/chapters`
-  - 功能：创建章节
-  - 请求体字段：
-    - `world_id` number
-    - `creator_user_id` number
-    - `name` string
-    - `opening` string
-    - `background` string
-    - `is_default` boolean
-    - `origin_chapter_id` number | null
-    - `create_time?` string（可选，ISO8601；不传则后端按默认生成）
   - 请求示例：
     - POST `http://localhost:5000/api/db/chapters`
     - Body：
@@ -236,11 +192,8 @@ npm start
     }
     ```
 
----
-
 ### Messages
 - 方法与路径：GET `/api/db/chapters/{chapter_id}/messages`
-  - 功能：获取章节下的所有对话消息
   - 请求示例：
     - GET `http://localhost:5000/api/db/chapters/101/messages`
   - 响应示例（200 OK）：
@@ -266,12 +219,6 @@ npm start
     ```
 
 - 方法与路径：POST `/api/db/chapters/{chapter_id}/messages`
-  - 功能：创建对话消息
-  - 请求体字段：
-    - `user_id` number（必填）
-    - `role` `'user' | 'ai'`（必填）
-    - `content` string（必填）
-    - `create_time?` string（可选，ISO8601；不传则后端使用当前 UTC 时间）
   - 请求示例：
     - POST `http://localhost:5000/api/db/chapters/101/messages`
     - Body：
@@ -294,23 +241,8 @@ npm start
       "create_time": "2025-10-30T12:06:00Z"
     }
     ```
-  - 错误示例（缺少字段，400 Bad Request）：
-    ```json
-    { "error": "缺少user_id参数" }
-    ```
-  - 错误示例（role 非法，400 Bad Request）：
-    ```json
-    { "error": "role必须为\"user\"或\"ai\"" }
-    ```
-  - 错误示例（时间格式错误，400 Bad Request）：
-    ```json
-    { "error": "时间格式错误: Invalid isoformat string: ..." }
-    ```
 
 - 方法与路径：DELETE `/api/db/chapters/{chapter_id}/messages?id={message_id}`
-  - 功能：删除指定章节下 ID 大于等于 `id` 的消息（批量删）
-  - 请求参数：
-    - `id` number（必填，可通过查询参数或 JSON 体传递）
   - 请求示例（查询参数方式）：
     - DELETE `http://localhost:5000/api/db/chapters/101/messages?id=1002`
   - 请求示例（JSON 体方式）：
@@ -328,15 +260,9 @@ npm start
       "target_id": 1002
     }
     ```
-  - 错误示例（缺少参数，400 Bad Request）：
-    ```json
-    { "error": "缺少id参数" }
-    ```
----
 
 ### Novels
 - 方法与路径：GET `/api/db/chapters/{chapter_id}/novels`
-  - 功能：获取章节下的所有小说记录
   - 请求示例：
     - GET `http://localhost:5000/api/db/chapters/101/novels`
   - 响应示例（200 OK）：
@@ -354,12 +280,6 @@ npm start
     ```
 
 - 方法与路径：POST `/api/db/chapters/{chapter_id}/novels`
-  - 功能：创建章节下的小说记录
-  - 请求体字段：
-    - `user_id` number（必填）
-    - `content` string（必填）
-    - `title?` string（可选）
-    - `create_time?` string（可选，ISO8601；不传则后端使用当前 UTC 时间）
   - 请求示例：
     - POST `http://localhost:5000/api/db/chapters/101/novels`
     - Body：
@@ -382,23 +302,10 @@ npm start
       "create_time": "2025-10-30T12:07:00Z"
     }
     ```
-  - 错误示例（缺少字段，400 Bad Request）：
-    ```json
-    { "error": "缺少user_id参数" }
-    ```
-  - 错误示例（时间格式错误，400 Bad Request）：
-    ```json
-    { "error": "时间格式错误: Invalid isoformat string: ..." }
-    ```
 
----
 
 ### User-Worlds
 - 方法与路径：GET `/api/db/user-worlds`
-  - 功能：按用户与角色关系获取世界关联
-  - 查询参数：
-    - `user_id` number
-    - `role` `'creator' | 'participant' | 'viewer'`
   - 请求示例：
     - GET `http://localhost:5000/api/db/user-worlds?user_id=5&role=creator`
   - 响应示例（200 OK）：
@@ -413,21 +320,7 @@ npm start
       }
     ]
     ```
-  - 错误示例（缺少参数或角色不合法，400 Bad Request）：
-    ```json
-    { "error": "缺少user_id或role参数" }
-    ```
-    或
-    ```json
-    { "error": "无效的role值" }
-    ```
 - 方法与路径：POST `/api/db/user-worlds`
-  - 功能：创建用户与世界的关联关系
-  - 请求体字段：
-    - `user_id` number（必填）
-    - `world_id` number（必填）
-    - `role` `'creator' | 'participant' | 'viewer'`（必填）
-    - `create_time?` string（可选，ISO8601；不传则后端使用当前 UTC 时间）
   - 请求示例：
     - POST `http://localhost:5000/api/db/user-worlds`
     - Body：
@@ -449,25 +342,9 @@ npm start
       "create_time": "2025-10-30T12:10:00Z"
     }
     ```
-  - 错误示例（缺少参数或角色不合法，400 Bad Request）：
-    ```json
-    { "error": "缺少user_id或world_id或role参数" }
-    ```
-    或
-    ```json
-    { "error": "无效的role值" }
-    ```
-  - 错误示例（时间格式错误，400 Bad Request）：
-    ```json
-    { "error": "时间格式错误: Invalid isoformat string: ..." }
-    ```
-
----
 
 ### Auth
 - 方法与路径：POST `/api/db/auth`
-  - 功能：注册或登录
-  - 请求体：`username` string, `password` string
   - 请求示例（注册或登录）：
     - POST `http://localhost:5000/api/db/auth`
     - Body：
@@ -488,18 +365,8 @@ npm start
       { "error": "密码错误" }
       ```
 
----
-
 ### LLM
 - 方法与路径：POST `/api/chat`
-  - 功能：通用对话生成
-  - 附加上下文字段（可选，用于增强上下文，后端将以第二条 system 消息注入模型）：
-    - `worldview` string
-    - `master_sitting` string
-    - `main_characters` 可以为：
-      - `[{ name: string; background?: string }...]`（推荐）
-      - 或 `string[]`、或单个对象/字符串（后端会兼容并序列化）
-    - `background` string（章节或场景背景）
   - 请求示例：
     - POST `http://localhost:5000/api/chat`
     - Body：
@@ -524,9 +391,6 @@ npm start
     ```
 
 - 方法与路径：POST `/api/chat/suggestions`
-  - 功能：基于历史对话生成 6 条下一条回复建议
-  - 附加上下文字段（可选，含义同 `/api/chat`）：
-    - `worldview`、`master_sitting`、`main_characters`、`background`
   - 请求示例：
     - POST `http://localhost:5000/api/chat/suggestions`
     - Body：
@@ -565,9 +429,6 @@ npm start
     ```
 
 - 方法与路径：POST `/api/novel`
-  - 功能：根据提示生成小说
-  - 附加上下文字段（可选，后端将以第二条 system 消息注入模型）：
-    - `worldview`、`master_sitting`、`main_characters`、`background`
   - 请求示例：
     - POST `http://localhost:5000/api/novel`
     - Body：

@@ -149,7 +149,6 @@ export default function ChapterPage() {
     setSuggestionsError(null);
     try {
       const editedMsg = messages.find((m) => m.id === editingId);
-      // 若正在编辑“用户气泡”（含占位），建议应基于其之前的历史，因此排除当前正在编辑的气泡
       const baseMsgs =
         editedMsg?.role === 'user' ? messages.filter((m) => m.id !== editingId) : messages;
 
@@ -159,12 +158,11 @@ export default function ChapterPage() {
         content: m.content,
       }));
 
-      const res = await fetch(`http://localhost:5000/api/chat/suggestions`, {
+      const res = await fetch(`/api/chat/suggestions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: history,
-          // 新增：上下文字段
           worldview: worldContext?.worldview,
           master_sitting: worldContext?.master_sitting,
           main_characters: worldContext?.main_characters,
@@ -268,7 +266,7 @@ export default function ChapterPage() {
       }));
 
       // 3) 调用聊天接口，生成AI回复，并添加为下一行气泡；随后也入库
-      const chatRes = await fetch(`http://localhost:5000/api/chat`, {
+      const chatRes = await fetch(`/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -343,7 +341,7 @@ export default function ChapterPage() {
       const prompt = msgs.map((m) => m.content).join('\n');
 
       // 2) 生成故事（调用后端 /api/novel）
-      const novelRes = await fetch(`http://localhost:5000/api/novel`, {
+      const novelRes = await fetch(`/api/novel`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -385,8 +383,6 @@ export default function ChapterPage() {
       }
 
       // 4) 更新前端：预览 + 列表追加
-      setGeneratedStoryContent(content);
-      setGenerateStoryTitle(title);
       setNovels((prev) => [saved, ...prev]);
     } catch (e) {
       setGenerateStoryError(e instanceof Error ? e.message : '生成故事异常');
@@ -584,25 +580,6 @@ export default function ChapterPage() {
             overflowY: 'auto',
           }}
         >
-          {generatedStoryContent && (
-            <section
-              style={{
-                border: '1px solid #e5e7eb',
-                borderRadius: 8,
-                padding: 12,
-                background: '#fff',
-                marginBottom: 12,
-              }}
-            >
-              <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 8 }}>
-                {generateStoryTitle || '生成故事预览'}
-              </div>
-              <div style={{ whiteSpace: 'pre-wrap', color: '#111827' }}>
-                {generatedStoryContent}
-              </div>
-            </section>
-          )}
-
           {loading ? (
             <div style={{ color: '#6b7280' }}>加载中...</div>
           ) : error ? (
@@ -621,7 +598,7 @@ export default function ChapterPage() {
                     maxWidth: '100%',
                     padding: '8px 12px',
                     borderRadius: 8,
-                    background: '#f9fafb',
+                    background: '#ffffff', // 与 paper 背景一致
                     border: hoveredId === m.id ? '1px solid #9ca3af' : '1px solid transparent',
                     transition: 'border-color 120ms ease',
                     color: '#111827',
@@ -678,7 +655,6 @@ export default function ChapterPage() {
 
   // 建议面板（位于写作区与右侧栏之间）
   const suggestionPanel = useMemo(() => {
-    if (editingId == null) return null;
     return (
       <aside
         style={{
@@ -693,7 +669,9 @@ export default function ChapterPage() {
         }}
       >
         <div style={{ fontWeight: 600, fontSize: 16 }}>灵感建议</div>
-        {suggestionsLoading ? (
+        {editingId == null ? (
+          <div style={{ color: '#6b7280' }}>暂无编辑内容</div>
+        ) : suggestionsLoading ? (
           <div style={{ color: '#6b7280' }}>生成建议中...</div>
         ) : suggestionsError ? (
           <div style={{ color: '#ef4444' }}>{suggestionsError}</div>
