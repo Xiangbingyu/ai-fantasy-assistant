@@ -50,6 +50,16 @@ export default function ChapterPage() {
     setSelectedNovel(null);
   };
 
+  // 保持消息按 id 升序；临时负 id 的占位气泡固定排在列表底部
+  const sortByIdAsc = (arr: ConversationMessage[]) =>
+    arr.slice().sort((a, b) => {
+      const aTemp = a.id < 0;
+      const bTemp = b.id < 0;
+      if (aTemp && !bTemp) return 1;   // 负 id（占位）排在后面
+      if (!aTemp && bTemp) return -1;  // 正常消息排在前面
+      return a.id - b.id;              // 同类之间仍按 id 升序
+    });
+
   // 插入一个用于输入的空气泡（占位）并进入编辑模式
   const addEmptyInputBubble = () => {
     const tempId = tempIdSeq;
@@ -61,7 +71,7 @@ export default function ChapterPage() {
       content: '',
       create_time: new Date().toISOString(),
     };
-    setMessages((prev) => [...prev, placeholder]);
+    setMessages((prev) => sortByIdAsc([...prev, placeholder]));
     setEditingId(tempId);
     setEditText('');
     setTempIdSeq((prev) => prev - 1);
@@ -71,25 +81,44 @@ export default function ChapterPage() {
   useEffect(() => {
     let cancelled = false;
     const loadChapter = async () => {
+      console.log('[CHAPTER] fetching detail', { chapterId });
       try {
         const res = await fetch(`/api/db/chapters/${chapterId}`);
+        console.log('[CHAPTER] response status', res.status);
         if (!res.ok) throw new Error('暂无章节详情接口');
         const data = await res.json();
-        if (!cancelled) setChapter(data as Chapter);
-      } catch {
-        // 提供占位信息，不阻塞页面渲染
+        console.log('[CHAPTER] response body', data);
+        if (!cancelled) {
+          setChapter(data as Chapter);
+          const ctx = {
+            worldview: (data as any).worldview,
+            master_sitting: (data as any).master_sitting,
+            main_characters: (data as any).main_characters,
+          };
+          setWorldContext(ctx);
+          console.log('[CTX] worldContext set', ctx);
+        }
+      } catch (e) {
+        console.error('[CHAPTER] fetch failed', e);
         if (!cancelled) {
           setChapter({
             id: Number(chapterId),
             name: `章节 ${chapterId}`,
             background: '（暂未获取到背景信息）',
           });
+          setWorldContext({
+            worldview: undefined,
+            master_sitting: undefined,
+            main_characters: undefined,
+          });
+          console.warn('[CTX] worldContext reset to undefined');
         }
       }
     };
     loadChapter();
     return () => {
       cancelled = true;
+      console.log('[CHAPTER] effect cleanup; cancelled = true');
     };
   }, [chapterId]);
 
@@ -101,7 +130,7 @@ export default function ChapterPage() {
         const res = await fetch(`/api/db/chapters/${chapterId}/messages`);
         if (!res.ok) throw new Error('获取消息失败');
         const data = (await res.json()) as ConversationMessage[];
-        if (!cancelled) setMessages(data);
+        if (!cancelled) setMessages(sortByIdAsc(data));
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : '获取消息异常');
       } finally {
@@ -152,11 +181,14 @@ export default function ChapterPage() {
       const baseMsgs =
         editedMsg?.role === 'user' ? messages.filter((m) => m.id !== editingId) : messages;
 
-      const recent = baseMsgs.slice(Math.max(0, baseMsgs.length - 30));
+      // 仅使用已入库消息；按 id 升序取最近30条
+      const canonical = baseMsgs.filter((m) => m.id > 0);
+      const recent = sortByIdAsc(canonical).slice(Math.max(0, canonical.length - 30));
       const history = recent.map((m) => ({
         role: m.role === 'ai' ? 'assistant' : 'user',
         content: m.content,
       }));
+      console.log('[CTX] worldContext is ：', worldContext);
 
       const res = await fetch(`/api/chat/suggestions`, {
         method: 'POST',
@@ -212,11 +244,11 @@ export default function ChapterPage() {
       await fetch(`/api/db/chapters/${chapterId}/messages?id=${fromId}`, { method: 'DELETE' });
       const currentIndex = messages.findIndex((m) => m.id === fromId);
       const current = currentIndex >= 0 ? messages[currentIndex] : undefined;
-      // 前端按索引截断，删除其后的所有项（包括占位气泡）
+      // 前端按索引截断，删除其后的所有项（包括占位气泡），并保持排序
       setMessages((prev) => {
         const idx = prev.findIndex((m) => m.id === fromId);
-        if (idx === -1) return prev.filter((m) => m.id <= fromId);
-        return prev.slice(0, idx + 1);
+        if (idx === -1) return sortByIdAsc(prev.filter((m) => m.id <= fromId));
+        return sortByIdAsc(prev.slice(0, idx + 1));
       });
       setEditingId(fromId);
       setEditText(current?.content ?? '');
@@ -252,14 +284,14 @@ export default function ChapterPage() {
       );
       setEditingId(null);
 
-      // 2) 获取近30条消息，作为聊天接口的上下文
+      // 2) 获取近30条消息，作为聊天接口的上下文（只使用已入库，按 id 升序）
       const histRes = await fetch(`/api/db/chapters/${chapterId}/messages`);
       const allMsgs = (await histRes.json()) as ConversationMessage[];
       if (!histRes.ok) {
         throw new Error('获取近30条消息失败');
       }
-      const recent = allMsgs.slice(Math.max(0, allMsgs.length - 30));
-      // 修复：将后端'ai'角色映射为大模型所需'assistant'
+      const canonical = allMsgs.filter((m) => m.id > 0);
+      const recent = sortByIdAsc(canonical).slice(Math.max(0, canonical.length - 30));
       const history = recent.map((m) => ({
         role: m.role === 'ai' ? 'assistant' : 'user',
         content: m.content,
@@ -271,7 +303,6 @@ export default function ChapterPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: history,
-          // 新增：上下文字段
           worldview: worldContext?.worldview,
           master_sitting: worldContext?.master_sitting,
           main_characters: worldContext?.main_characters,
@@ -303,8 +334,8 @@ export default function ChapterPage() {
         throw new Error(createdAiMsg?.error || '保存AI消息失败');
       }
 
-      // 在前端追加AI气泡
-      setMessages((prev) => [...prev, createdAiMsg]);
+      // 在前端追加AI气泡（保持按 id 升序）
+      setMessages((prev) => sortByIdAsc([...prev, createdAiMsg]));
 
       // AI回复后，立即插入一个新的空气泡让用户继续输入
       addEmptyInputBubble(); // 进入编辑态后 useEffect 会自动拉取建议
@@ -334,11 +365,14 @@ export default function ChapterPage() {
     setGeneratingStory(true);
     setGenerateStoryError(null);
     try {
-      // 1) 拉取全部对话内容并拼接为 prompt
+      // 1) 拉取全部对话内容并拼接为 prompt（只用已入库消息，按 id 升序）
       const msgRes = await fetch(`/api/db/chapters/${chapterId}/messages`);
       const msgs = (await msgRes.json()) as ConversationMessage[];
       if (!msgRes.ok) throw new Error('获取消息失败');
-      const prompt = msgs.map((m) => m.content).join('\n');
+
+      const canonical = msgs.filter((m) => m.id > 0);
+      const ordered = sortByIdAsc(canonical);
+      const prompt = ordered.map((m) => m.content).join('\n');
 
       // 2) 生成故事（调用后端 /api/novel）
       const novelRes = await fetch(`/api/novel`, {

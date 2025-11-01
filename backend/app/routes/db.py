@@ -97,6 +97,10 @@ def get_chapter_detail(chapter_id):
         chapter = Chapter.query.get(chapter_id)
         if chapter is None:
             return jsonify({'error': '章节不存在'}), 404
+
+        # 新增：加载所属世界并返回世界相关上下文字段
+        world = World.query.get(chapter.world_id) if chapter.world_id else None
+
         return jsonify({
             'id': chapter.id,
             'world_id': chapter.world_id,
@@ -106,7 +110,12 @@ def get_chapter_detail(chapter_id):
             'background': chapter.background,
             'is_default': chapter.is_default,
             'origin_chapter_id': chapter.origin_chapter_id,
-            'create_time': chapter.create_time.isoformat() if hasattr(chapter.create_time, 'isoformat') else chapter.create_time
+            'create_time': chapter.create_time.isoformat() if hasattr(chapter.create_time, 'isoformat') else chapter.create_time,
+            # 新增字段（来自 World）
+            'worldview': (world.worldview if world else None),
+            # 前端使用 master_sitting，这里从 world.master_setting 做映射
+            'master_sitting': (world.master_setting if world else None),
+            'main_characters': ([{'name': c.name, 'background': c.background} for c in world.characters] if world else [])
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500

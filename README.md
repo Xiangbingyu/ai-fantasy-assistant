@@ -157,7 +157,13 @@ npm start
       "background": "世界背景...",
       "is_default": true,
       "origin_chapter_id": null,
-      "create_time": "2025-10-30T12:05:00Z"
+      "create_time": "2025-10-30T12:05:00Z",
+      "worldview": "test1...",
+      "master_sitting": "test1",
+      "main_characters": [
+        { "name": "kii", "background": "大力王" },
+        { "name": "cap", "background": "闪电侠" }
+      ]
     }
     ```
 
