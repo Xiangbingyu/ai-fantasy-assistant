@@ -192,6 +192,19 @@ npm start
     }
     ```
 
+- 方法与路径：DELETE `/api/db/chapters/<chapter_id>`
+  - 请求示例：
+    - DELETE `http://localhost:5000/api/db/chapters/101`
+  - 响应示例（200 OK）：
+    ```json
+    {
+      "message": "章节删除成功",
+      "chapter_id": 101,
+      "deleted_messages": 2,
+      "deleted_novels": 1
+    }
+    ```
+
 ### Messages
 - 方法与路径：GET `/api/db/chapters/{chapter_id}/messages`
   - 请求示例：

@@ -410,6 +410,37 @@ def delete_messages(chapter_id):
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
+@db_bp.route('/chapters/<int:chapter_id>', methods=['DELETE'])
+def delete_chapter(chapter_id):
+    try:
+        # 查找章节是否存在
+        chapter = Chapter.query.get(chapter_id)
+        if chapter is None:
+            return jsonify({'error': '章节不存在'}), 404
+
+        # 先删除该章节下的消息与小说（避免外键约束冲突）
+        deleted_messages = ConversationMessage.query.filter(
+            ConversationMessage.chapter_id == chapter_id
+        ).delete(synchronize_session=False)
+        deleted_novels = NovelRecord.query.filter(
+            NovelRecord.chapter_id == chapter_id
+        ).delete(synchronize_session=False)
+
+        # 删除章节本身
+        db.session.delete(chapter)
+        db.session.commit()
+
+        return jsonify({
+            'message': '章节删除成功',
+            'chapter_id': chapter_id,
+            'deleted_messages': deleted_messages,
+            'deleted_novels': deleted_novels
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
 @db_bp.route('/user-worlds', methods=['POST'])
 def create_user_world():
     try:
