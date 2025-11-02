@@ -97,7 +97,6 @@ def chat_suggestions():
 
 [Core Context]
 世界观：{data.get("worldview") or "无特殊设定"}
-总设定（master_sitting）：{data.get("master_sitting") or "无额外设定"}
 主要角色信息：{mc_text}
 章节背景：{data.get("background") or "无特定场景"}
 
