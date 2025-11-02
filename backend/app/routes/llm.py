@@ -82,36 +82,50 @@ def chat_suggestions():
         data = request.get_json(silent=True) or {}
         history = data.get("messages") or []
 
-        suggest_prompt = (
-            "你是一个回复辅助助手。基于用户与AI的历史对话，生成6条可能的下一条回复示例。"
-            "严格按JSON数组输出，每个元素为对象：{\"content\": \"示例回复\"}。"
-            "不要输出额外解释或非JSON文本。风格：简洁自然、中文、避免重复。"
-        )
-
-        # 新增：从请求体获取上下文字段并组装为第二条 system 消息
-        worldview = data.get("worldview")
-        master_sitting = data.get("master_sitting")
+        # 统一组装主要角色信息
         main_characters = data.get("main_characters")
-        background = data.get("background")
-
         if isinstance(main_characters, (list, tuple)):
-            mc_text = ", ".join([str(x) for x in main_characters])
+            mc_text = ", ".join(map(str, main_characters))
         elif isinstance(main_characters, dict):
             mc_text = json.dumps(main_characters, ensure_ascii=False)
         else:
-            mc_text = str(main_characters) if main_characters is not None else ""
+            mc_text = str(main_characters) if main_characters else ""
 
-        context_prompt = (
-            f"世界观：{worldview or ''}\n"
-            f"总设定（master_sitting）：{master_sitting or ''}\n"
-            f"主要角色：{mc_text}\n"
-            f"章节背景：{background or ''}"
-        )
+        # 构造 system 提示
+        system_prompt = f"""[Role]
+你是一个对话回复辅助生成器，负责基于以下上下文和历史对话，为用户生成符合场景的下一条回复示例。需完全贴合世界观设定、角色特征和对话氛围。
+
+[Core Context]
+世界观：{data.get("worldview") or "无特殊设定"}
+总设定（master_sitting）：{data.get("master_sitting") or "无额外设定"}
+主要角色信息：{mc_text}
+章节背景：{data.get("background") or "无特定场景"}
+
+[Output Requirements]
+1. 数量：必须生成6条回复示例，每条为独立的可能延续方向
+2. 内容：需符合当前对话逻辑，贴合角色身份与世界观，避免重复历史对话内容
+3. 风格：简洁自然（单条20-80字），中文表达，语气符合场景氛围
+4. 格式：严格输出JSON数组，结构为{{\"content\": \"示例回复\"}}，无任何额外内容。
+5. 禁忌：禁止添加解释、注释、代码块标记（如```json），禁止非JSON内容，禁止重复示例。
+
+[Format Example]
+[
+  {{\"content\": "（动作）神态，对话内容"}},
+  {{\"content\": "（动作）神态，对话内容"}},
+  {{\"content\": "（动作）神态，对话内容"}},
+  {{\"content\": "（动作）神态，对话内容"}},
+  {{\"content\": "（动作）神态，对话内容"}},
+  {{\"content\": "（动作）神态，对话内容"}}
+]
+
+[Current Conversation History]
+{json.dumps(history, ensure_ascii=False) if history else "无历史对话"}
+"""
 
         messages = [
-            {"role": "system", "content": suggest_prompt},
-            {"role": "system", "content": context_prompt},
-        ] + history
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": "现在我需要你生成6条回复示例"}
+        ]
 
         response = client.chat.completions.create(
             model="glm-3-turbo",
@@ -126,8 +140,7 @@ def chat_suggestions():
             parsed = json.loads(text)
             if isinstance(parsed, list):
                 return jsonify({"suggestions": parsed})
-            else:
-                return jsonify({"raw": text})
+            return jsonify({"raw": text})
         except Exception:
             return jsonify({"raw": text})
 
