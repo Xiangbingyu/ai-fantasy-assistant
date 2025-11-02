@@ -7,6 +7,13 @@ interface FilterBarProps {
     tags: string[];
     selectedTags: string[];
     setSelectedTags: (tags: string[]) => void;
+    tagStyle: {
+    selected: string;
+    unselected: string;
+    padding: string;
+    borderRadius: string;
+    margin: string;
+  };
 }
 
 export default function FilterBar({
@@ -19,15 +26,15 @@ export default function FilterBar({
     const [showAllTags, setShowAllTags] = useState(false);
 
     return (
-        <div className="bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700 py-2">
-            <div className="container mx-auto px-4">
+        <div className="bg-white py-3 transition-all duration-300 w-full">
+            <div className="w-full px-4"> 
                 <div className="flex flex-wrap items-center gap-4">
                     {/* 排序筛选 */}
                     <div>
                         <select
                             value={sortBy}
                             onChange={(e) => setSortBy(e.target.value)}
-                            className="px-3 py-1 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800"
+                            className="px-3 py-1 rounded border border-gray-200 bg-white"
                         >
                             <option value="热度">按热度排序</option>
                             <option value="更新时间">按更新时间排序</option>
@@ -36,31 +43,33 @@ export default function FilterBar({
                     
                     {/* 标签筛选（支持多选） */}
                     <div className="flex flex-wrap items-center gap-2 flex-1">
-                        <span className="text-sm text-gray-500 dark:text-gray-400">标签:</span>
+                        <span className="text-sm text-gray-700">标签:</span>
 
                         <div className="flex flex-wrap gap-2 max-w-full">
                             {tags.slice(0, showAllTags ? tags.length : 5).map(tag => {
                                 const isSelected = selectedTags.includes(tag);
                                 return (
                                     <button
-                                        key={tag}
-                                        onClick={() =>
-                                            setSelectedTags(
-                                                isSelected
-                                                    ? selectedTags.filter(t => t !== tag)
-                                                    : [...selectedTags, tag]
-                                            )
-                                        }
-                                        className={`px-2 py-1 rounded text-sm ${
-                                            isSelected
-                                                ? 'bg-purple-500 text-white'
-                                                : 'bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600'
-                                        }`}
+                                    key={tag}
+                                    onClick={() =>
+                                        setSelectedTags(
+                                        isSelected
+                                            ? selectedTags.filter(t => t !== tag)
+                                            : [...selectedTags, tag]
+                                        )
+                                    }
+                                    className={`px-2 py-1 rounded text-sm border transition-colors duration-200 ${
+                                        isSelected
+                                        // 选中状态：深色背景+白色文字（强对比）
+                                        ? 'border-gray-800 bg-gray-800 text-white hover:bg-gray-700'
+                                        // 未选中状态：浅色边框+灰色文字（弱对比）
+                                        : 'border-gray-200 bg-white text-gray-500 hover:border-gray-300'
+                                    }`}
                                     >
-                                        {tag}
+                                    {tag}
                                     </button>
                                 );
-                            })}
+                                })}
 
                             {tags.length > 5 && (
                                 <button
