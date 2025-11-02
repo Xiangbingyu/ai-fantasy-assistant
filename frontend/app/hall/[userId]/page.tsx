@@ -37,7 +37,7 @@ export default function WorldHall() {
         const data = await res.json();
         const worldsWithCovers = data.map((world: World) => ({
           ...world,
-          cover_url: DEFAULT_WORLD_COVER
+          cover_url: world.cover_url || DEFAULT_WORLD_COVER
         }));
         setAllWorlds(worldsWithCovers);
       } catch (err) {
@@ -305,6 +305,14 @@ export default function WorldHall() {
         <MyWorldsSidebar
           myWorlds={myWorlds}
           onSelectWorld={(worldId) => startCreation(worldId, 'sidebar')}
+          style={{
+            width: '280px',
+            backgroundColor: 'white',
+            borderRadius: '12px',
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.05)',
+            padding: '1.5rem',
+            flexShrink: 0
+            }}
         />
 
         <main className="flex-1">
@@ -331,6 +339,15 @@ export default function WorldHall() {
                   <WorldCard
                     world={world}
                     onClick={() => startCreation(world.id, 'card')}
+                    cardStyle={{
+                      padding: '0',
+                      borderRadius: '12px'
+                    }}
+                    textStyle={{
+                      title: 'font-semibold text-gray-800 text-lg mb-1',
+                      tags: 'text-gray-500 text-sm',
+                      info: 'text-gray-400 text-xs mt-2'
+                    }}
                   />
                 </div>
               ))

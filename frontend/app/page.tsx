@@ -67,7 +67,7 @@ export default function LoginPage() {
         // 小说创作主题背景（手写稿+墨水纹理）
         backgroundImage: `
         linear-gradient(rgba(245, 247, 250, 0.92), rgba(245, 247, 250, 0.97)),
-        url('/image/login1.png')
+        url('/image/background.png')
         `,
         backgroundBlendMode: 'multiply, overlay',
         backgroundSize: 'cover, cover',
@@ -117,8 +117,8 @@ export default function LoginPage() {
             fontSize: '36px',
             fontWeight: 700,
             background: 'linear-gradient(90deg, #6366f1, #8b5cf6)',
-            backgroundClip: 'text',
-            WebkitBackgroundClip: 'text',
+            '-webkit-background-clip': 'text',
+            'background-clip': 'text',
             color: 'transparent',
             margin: '0 0 8px 0',
             letterSpacing: '-0.5px',
@@ -185,6 +185,7 @@ export default function LoginPage() {
               display: 'block',
               fontSize: '14px',
               fontWeight: 500,
+              color: '#475569',
               marginBottom: '8px',
               transition: 'color 0.2s ease',
               // 输入框聚焦时标签变色
