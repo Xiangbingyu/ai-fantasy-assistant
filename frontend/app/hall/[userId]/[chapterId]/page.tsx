@@ -1,66 +1,132 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useRef, useMemo, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
+import io, { Socket } from 'socket.io-client';
 import type { Chapter, ConversationMessage, NovelRecord } from '../../../types/db';
+import WorldPanelComponent from './components/WorldPanelComponent';
+import NovelGenerationComponent from './components/NovelGenerationComponent';
+import StoryAnalysisComponent from './components/StoryAnalysisComponent';
+import StoryGuideComponent from './components/StoryGuideComponent';
+import SuggestionsComponent from './components/SuggestionsComponent';
 
 export default function ChapterPage() {
+  useEffect(() => {
+    const style = document.createElement('style');
+    style.textContent = `
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.3; }
+      }
+    `;
+    document.head.appendChild(style);
+    
+    return () => {
+      document.head.removeChild(style);
+    };
+  }, []);
+
   const params = useParams<{ userId: string; chapterId: string }>();
   const userId = params.userId;
   const chapterId = params.chapterId;
+  
+  const [isMobile, setIsMobile] = useState(false);
+  const [activePanel, setActivePanel] = useState<'left' | 'suggestion' | 'right' | null>(null);
+  
+  useEffect(() => {
+    const checkIsMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    
+    checkIsMobile();
+    window.addEventListener('resize', checkIsMobile);
+    
+    return () => {
+      window.removeEventListener('resize', checkIsMobile);
+    };
+  }, []);
+  
+  const closePanel = () => {
+    setActivePanel(null);
+  };
+  
+  const togglePanel = (panel: 'left' | 'suggestion' | 'right') => {
+    setActivePanel(activePanel === panel ? null : panel);
+  };
 
   const [chapter, setChapter] = useState<Partial<Chapter> | null>(null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [novels, setNovels] = useState<NovelRecord[]>([]);
-  // 新增：世界与章节上下文（供 LLM 使用）
-  const [worldContext, setWorldContext] = useState<{
-    worldview?: string;
-    master_sitting?: string; // 从 world.master_setting 映射
-    main_characters?: any;
-  } | null>(null);
+  const [worldContext, setWorldContext] = useState<{worldview?: string; master_sitting?: string; main_characters?: any;} | null>(null);
   const [hoveredId, setHoveredId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editText, setEditText] = useState<string>('');
   const [saving, setSaving] = useState<boolean>(false);
-
-  // 新增：故事弹窗相关状态
   const [selectedNovel, setSelectedNovel] = useState<NovelRecord | null>(null);
   const [isNovelModalOpen, setIsNovelModalOpen] = useState<boolean>(false);
-
-  // 建议面板状态
+  const [storyGuide, setStoryGuide] = useState<string>('');
+  const [isSavingGuide, setIsSavingGuide] = useState<boolean>(false);
   const [suggestions, setSuggestions] = useState<Array<{ content: string }>>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState<boolean>(false);
   const [suggestionsError, setSuggestionsError] = useState<string | null>(null);
-
-  // 占位气泡临时ID序列与初始化标记
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const editInputRef = useRef<HTMLInputElement>(null);
   const [tempIdSeq, setTempIdSeq] = useState<number>(-1);
   const [initializedInput, setInitializedInput] = useState<boolean>(false);
+  const [lastAnalysisCount, setLastAnalysisCount] = useState<number>(0);
+  const [storyAnalysis, setStoryAnalysis] = useState<string>('');
+  const [currentStoryAnalysis, setCurrentStoryAnalysis] = useState<string>('');
+  
+  const [socket, setSocket] = useState<Socket | null>(null);
+  const [isConnected, setIsConnected] = useState(false);
+  const [streamingMessage, setStreamingMessage] = useState<string>('');
+  const [isStreaming, setIsStreaming] = useState(false);
 
-  // 打开故事详情弹窗
-  const openNovelModal = (novel: NovelRecord) => {
-    setSelectedNovel(novel);
-    setIsNovelModalOpen(true);
-  };
-
-  // 关闭故事详情弹窗
-  const closeNovelModal = () => {
-    setIsNovelModalOpen(false);
-    setSelectedNovel(null);
-  };
-
-  // 保持消息按 id 升序；临时负 id 的占位气泡固定排在列表底部
   const sortByIdAsc = (arr: ConversationMessage[]) =>
     arr.slice().sort((a, b) => {
       const aTemp = a.id < 0;
       const bTemp = b.id < 0;
-      if (aTemp && !bTemp) return 1;   // 负 id（占位）排在后面
-      if (!aTemp && bTemp) return -1;  // 正常消息排在前面
-      return a.id - b.id;              // 同类之间仍按 id 升序
+      if (aTemp && !bTemp) return 1;
+      if (!aTemp && bTemp) return -1;
+      return a.id - b.id;
     });
 
-  // 插入一个用于输入的空气泡（占位）并进入编辑模式
+  useEffect(() => {
+    const newSocket = io('http://120.48.16.108:4000');
+    
+    newSocket.on('connect', () => {
+      console.log('Connected to WebSocket');
+      setIsConnected(true);
+    });
+    
+    newSocket.on('disconnect', () => {
+      console.log('Disconnected from WebSocket');
+      setIsConnected(false);
+    });
+    
+    newSocket.on('chat_stream_data', (data) => {
+      setStreamingMessage(prev => prev + data.content);
+    });
+    
+    newSocket.on('chat_stream_end', () => {
+      setIsStreaming(false);
+    });
+    
+    newSocket.on('chat_stream_error', (error) => {
+      console.error('Chat error:', error);
+      setIsStreaming(false);
+      setError(error.error || '聊天流式传输失败');
+    });
+    
+    setSocket(newSocket);
+    
+    return () => {
+      newSocket.disconnect();
+    };
+  }, []);
+
   const addEmptyInputBubble = () => {
     const tempId = tempIdSeq;
     const placeholder: ConversationMessage = {
@@ -77,17 +143,13 @@ export default function ChapterPage() {
     setTempIdSeq((prev) => prev - 1);
   };
 
-  // 加载章节信息
   useEffect(() => {
     let cancelled = false;
     const loadChapter = async () => {
-      console.log('[CHAPTER] fetching detail', { chapterId });
       try {
         const res = await fetch(`/api/db/chapters/${chapterId}`);
-        console.log('[CHAPTER] response status', res.status);
         if (!res.ok) throw new Error('暂无章节详情接口');
         const data = await res.json();
-        console.log('[CHAPTER] response body', data);
         if (!cancelled) {
           setChapter(data as Chapter);
           const ctx = {
@@ -96,10 +158,8 @@ export default function ChapterPage() {
             main_characters: (data as any).main_characters,
           };
           setWorldContext(ctx);
-          console.log('[CTX] worldContext set', ctx);
         }
       } catch (e) {
-        console.error('[CHAPTER] fetch failed', e);
         if (!cancelled) {
           setChapter({
             id: Number(chapterId),
@@ -111,18 +171,15 @@ export default function ChapterPage() {
             master_sitting: undefined,
             main_characters: undefined,
           });
-          console.warn('[CTX] worldContext reset to undefined');
         }
       }
     };
     loadChapter();
     return () => {
       cancelled = true;
-      console.log('[CHAPTER] effect cleanup; cancelled = true');
     };
   }, [chapterId]);
 
-  // 加载消息
   useEffect(() => {
     let cancelled = false;
     const loadMessages = async () => {
@@ -143,7 +200,6 @@ export default function ChapterPage() {
     };
   }, [chapterId]);
 
-  // 首次进入页面后，消息加载完成即插入一个空气泡供用户输入
   useEffect(() => {
     if (!loading && !error && !initializedInput) {
       addEmptyInputBubble();
@@ -151,7 +207,6 @@ export default function ChapterPage() {
     }
   }, [loading, error, initializedInput]);
 
-  // 加载小说记录
   useEffect(() => {
     let cancelled = false;
     const loadNovels = async () => {
@@ -161,7 +216,6 @@ export default function ChapterPage() {
         const data = (await res.json()) as NovelRecord[];
         if (!cancelled) setNovels(data);
       } catch (e) {
-        // 小说列表失败不阻塞主区域
         console.error(e);
       }
     };
@@ -171,7 +225,6 @@ export default function ChapterPage() {
     };
   }, [chapterId]);
 
-  // 根据当前可编辑气泡生成写作建议
   const fetchSuggestions = async () => {
     if (editingId == null) return;
     setSuggestionsLoading(true);
@@ -181,14 +234,12 @@ export default function ChapterPage() {
       const baseMsgs =
         editedMsg?.role === 'user' ? messages.filter((m) => m.id !== editingId) : messages;
 
-      // 仅使用已入库消息；按 id 升序取最近30条
       const canonical = baseMsgs.filter((m) => m.id > 0);
-      const recent = sortByIdAsc(canonical).slice(Math.max(0, canonical.length - 30));
+      const recent = sortByIdAsc(canonical).slice(Math.max(0, canonical.length - 10));
       const history = recent.map((m) => ({
         role: m.role === 'ai' ? 'assistant' : 'user',
         content: m.content,
       }));
-      console.log('[CTX] worldContext is ：', worldContext);
 
       const res = await fetch(`/api/chat/suggestions`, {
         method: 'POST',
@@ -222,16 +273,13 @@ export default function ChapterPage() {
     }
   };
 
-  // 当进入编辑态（包括首次创建输入气泡、AI回复后创建输入气泡、回溯进入编辑模式）自动拉取建议
   useEffect(() => {
     if (editingId != null) {
       fetchSuggestions();
     }
   }, [editingId]);
 
-  // 回溯：删除该消息及之后所有（数据库删除，前端保留当前行，并进入编辑模式）
   const handleRollback = async (fromId: number) => {
-    // 若回溯到占位气泡（负ID），仅前端移除并退出编辑
     if (fromId < 0) {
       setMessages((prev) => prev.filter((m) => m.id !== fromId));
       if (editingId === fromId) {
@@ -241,36 +289,45 @@ export default function ChapterPage() {
       return;
     }
     try {
+      const beforeRollbackCount = messages.filter(m => m.id > 0).length;
+      
       await fetch(`/api/db/chapters/${chapterId}/messages?id=${fromId}`, { method: 'DELETE' });
       const currentIndex = messages.findIndex((m) => m.id === fromId);
       const current = currentIndex >= 0 ? messages[currentIndex] : undefined;
-      // 前端按索引截断，删除其后的所有项（包括占位气泡），并保持排序
       setMessages((prev) => {
         const idx = prev.findIndex((m) => m.id === fromId);
         if (idx === -1) return sortByIdAsc(prev.filter((m) => m.id <= fromId));
         return sortByIdAsc(prev.slice(0, idx + 1));
       });
       setEditingId(fromId);
-      setEditText(current?.content ?? '');
-      // 进入编辑态后，建议获取将由 useEffect 自动触发
+      setEditText(current?.content.replace(/^(正文：|开场白：)/, '') ?? '');
+      
+      const histRes = await fetch(`/api/db/chapters/${chapterId}/messages`);
+      const allMsgs = (await histRes.json()) as ConversationMessage[];
+      const canonical = allMsgs.filter((m) => m.id > 0);
+      const afterRollbackCount = canonical.length;
+      
+      const messageCountDiff = beforeRollbackCount - afterRollbackCount;
+      if (afterRollbackCount >= 10 && messageCountDiff > 5) {
+      }
     } catch (e) {
       console.error(e);
     }
   };
 
-  // 提交编辑：按 Enter 将该行内容 POST 为新消息，然后调用聊天接口生成下一行AI气泡并入库
   const handleCommitEdit = async () => {
-    if (editingId == null || saving) return;
+    if (editingId == null || saving || !socket || !isConnected) return;
     setSaving(true);
+    setStreamingMessage('');
+    setIsStreaming(true);
     try {
-      // 1) 先将该行内容作为“用户消息”保存进数据库
       const userRes = await fetch(`/api/db/chapters/${chapterId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           user_id: Number(userId),
           role: 'user',
-          content: editText,
+          content: `正文：${editText.replace(/^正文：/, '')}`,
         }),
       });
       const createdUserMsg = await userRes.json();
@@ -278,73 +335,80 @@ export default function ChapterPage() {
         throw new Error(createdUserMsg?.error || '保存用户消息失败');
       }
 
-      // 用返回的入库结果替换当前编辑的气泡（更新 id、时间等）
       setMessages((prev) =>
         prev.map((m) => (m.id === editingId ? { ...m, ...createdUserMsg } : m))
       );
       setEditingId(null);
 
-      // 2) 获取近30条消息，作为聊天接口的上下文（只使用已入库，按 id 升序）
       const histRes = await fetch(`/api/db/chapters/${chapterId}/messages`);
       const allMsgs = (await histRes.json()) as ConversationMessage[];
       if (!histRes.ok) {
-        throw new Error('获取近30条消息失败');
+        throw new Error('获取近10条消息失败');
       }
       const canonical = allMsgs.filter((m) => m.id > 0);
-      const recent = sortByIdAsc(canonical).slice(Math.max(0, canonical.length - 30));
+      const recent = sortByIdAsc(canonical).slice(Math.max(0, canonical.length - 10));
       const history = recent.map((m) => ({
         role: m.role === 'ai' ? 'assistant' : 'user',
         content: m.content,
       }));
 
-      // 3) 调用聊天接口，生成AI回复，并添加为下一行气泡；随后也入库
-      const chatRes = await fetch(`/api/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: history,
-          worldview: worldContext?.worldview,
-          master_sitting: worldContext?.master_sitting,
-          main_characters: worldContext?.main_characters,
-          background: chapter?.background,
-        }),
-      });
-      const chatData = await chatRes.json();
-      if (!chatRes.ok) {
-        const msg =
-          typeof chatData?.error === 'string'
-            ? chatData.error
-            : chatData?.error?.message || '聊天接口调用失败';
-        throw new Error(msg);
-      }
-      const aiContent: string = chatData.response ?? '';
+      const chatData = {
+        messages: history,
+        worldview: worldContext?.worldview || '',
+        master_sitting: worldContext?.master_sitting || '',
+        main_characters: worldContext?.main_characters || '',
+        background: chapter?.background || '',
+        story_analysis: currentStoryAnalysis || '',
+        story_guide: storyGuide || '',
+        chapterId: chapterId,
+        userId: userId
+      };
 
-      // 将AI回复保存到数据库
-      const aiSaveRes = await fetch(`/api/db/chapters/${chapterId}/messages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          user_id: Number(userId),
-          role: 'ai',
-          content: aiContent,
-        }),
-      });
-      const createdAiMsg = await aiSaveRes.json();
-      if (!aiSaveRes.ok) {
-        throw new Error(createdAiMsg?.error || '保存AI消息失败');
-      }
+      socket.emit('chat_stream', chatData);
 
-      // 在前端追加AI气泡（保持按 id 升序）
-      setMessages((prev) => sortByIdAsc([...prev, createdAiMsg]));
-
-      // AI回复后，立即插入一个新的空气泡让用户继续输入
-      addEmptyInputBubble(); // 进入编辑态后 useEffect 会自动拉取建议
     } catch (e) {
       setError(e instanceof Error ? e.message : '提交异常');
-    } finally {
+      setIsStreaming(false);
       setSaving(false);
     }
   };
+
+  useEffect(() => {
+    if (!isStreaming && streamingMessage && socket) {
+      const updateMessageList = async () => {
+        try {
+          const histRes = await fetch(`/api/db/chapters/${chapterId}/messages`);
+          const allMsgs = (await histRes.json()) as ConversationMessage[];
+          if (histRes.ok) {
+            const canonical = allMsgs.filter((m) => m.id > 0);
+            const sortedMessages = sortByIdAsc(canonical);
+            setMessages(sortedMessages);
+
+            const messageCount = sortedMessages.length;
+            const targetRound = Math.floor(messageCount / 10) * 10;
+            const shouldTriggerAnalysis = 
+              messageCount >= 10 && 
+              (targetRound > 0 && targetRound !== lastAnalysisCount || 
+               lastAnalysisCount === 0 || 
+               messageCount < lastAnalysisCount);
+            
+            if (shouldTriggerAnalysis) {
+            }
+          }
+
+          setStreamingMessage('');
+          addEmptyInputBubble();
+        } catch (e) {
+          console.error('更新消息列表失败:', e);
+          setError(e instanceof Error ? e.message : '更新消息列表失败');
+        } finally {
+          setSaving(false);
+        }
+      };
+
+      updateMessageList();
+    }
+  }, [isStreaming, streamingMessage, chapterId, userId, lastAnalysisCount]);
 
   const handleEditKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
@@ -353,142 +417,15 @@ export default function ChapterPage() {
     }
   };
 
-  // 新增：生成故事状态与预览
-  const [generatingStory, setGeneratingStory] = useState<boolean>(false);
-  const [generateStoryError, setGenerateStoryError] = useState<string | null>(null);
-  const [generatedStoryContent, setGeneratedStoryContent] = useState<string | null>(null);
-  const [generateStoryTitle, setGenerateStoryTitle] = useState<string | null>(null);
-
-  // 生成故事逻辑
-  const handleGenerateStory = async () => {
-    if (generatingStory) return;
-    setGeneratingStory(true);
-    setGenerateStoryError(null);
-    try {
-      // 1) 拉取全部对话内容并拼接为 prompt（只用已入库消息，按 id 升序）
-      const msgRes = await fetch(`/api/db/chapters/${chapterId}/messages`);
-      const msgs = (await msgRes.json()) as ConversationMessage[];
-      if (!msgRes.ok) throw new Error('获取消息失败');
-
-      const canonical = msgs.filter((m) => m.id > 0);
-      const ordered = sortByIdAsc(canonical);
-      const prompt = ordered.map((m) => m.content).join('\n');
-
-      // 2) 生成故事（调用后端 /api/novel）
-      const novelRes = await fetch(`/api/novel`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt,
-          worldview: worldContext?.worldview,
-          master_sitting: worldContext?.master_sitting,
-          main_characters: worldContext?.main_characters,
-          background: chapter?.background,
-        }),
-      });
-      const novelData = await novelRes.json();
-      if (!novelRes.ok) {
-        const msg =
-          typeof novelData?.error === 'string'
-            ? novelData.error
-            : novelData?.error?.message || '生成故事失败';
-        throw new Error(msg);
+  const handleSuggestionClick = useCallback(() => {
+    setTimeout(() => {
+      if (editingId !== null) {
+        editInputRef.current?.focus();
+      } else {
+        inputRef.current?.focus();
       }
-      const content: string = novelData?.response ?? novelData?.content ?? '';
-      if (!content) throw new Error('生成结果为空');
-
-      // 生成标题（取第一行或默认）
-      const title =
-        (content.split('\n').find((line) => line.trim().length) || 'AI故事').slice(0, 50);
-
-      // 3) 保存到数据库
-      const saveRes = await fetch(`/api/db/chapters/${chapterId}/novels`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          user_id: Number(userId),
-          title,
-          content,
-        }),
-      });
-      const saved = await saveRes.json();
-      if (!saveRes.ok) {
-        throw new Error(saved?.error || '保存故事失败');
-      }
-
-      // 4) 更新前端：预览 + 列表追加
-      setNovels((prev) => [saved, ...prev]);
-    } catch (e) {
-      setGenerateStoryError(e instanceof Error ? e.message : '生成故事异常');
-    } finally {
-      setGeneratingStory(false);
-    }
-  };
-
-  // 故事详情弹窗组件
-  const NovelDetailModal = () => {
-    if (!isNovelModalOpen || !selectedNovel) return null;
-
-    return (
-      <div 
-        style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.5)',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          zIndex: 1000,
-          padding: '20px',
-        }}
-        onClick={closeNovelModal}
-      >
-        <div 
-          style={{
-            backgroundColor: 'white',
-            borderRadius: '8px',
-            width: '100%',
-            maxWidth: '800px',
-            maxHeight: '90vh',
-            overflowY: 'auto',
-            padding: '24px',
-            boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)',
-          }}
-          onClick={(e) => e.stopPropagation()} // 防止点击内容区域关闭弹窗
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h2 style={{ margin: 0, fontSize: '20px', color: '#111827' }}>
-              {selectedNovel.title || '未命名故事'}
-            </h2>
-            <button
-              onClick={closeNovelModal}
-              style={{
-                background: 'none',
-                border: 'none',
-                fontSize: '24px',
-                cursor: 'pointer',
-                color: '#6b7280',
-                padding: '4px',
-              }}
-            >
-              &times;
-            </button>
-          </div>
-          
-          <div style={{ color: '#6b7280', fontSize: '14px', marginBottom: '16px' }}>
-            创建时间: {new Date(selectedNovel.create_time).toLocaleString()}
-          </div>
-          
-          <div style={{ whiteSpace: 'pre-wrap', lineHeight: '1.6', color: '#111827' }}>
-            {selectedNovel.content}
-          </div>
-        </div>
-      </div>
-    );
-  };
+    }, 100);
+  }, [editingId]);
 
   const sidebar = useMemo(() => {
     return (
@@ -501,95 +438,30 @@ export default function ChapterPage() {
           flexDirection: 'column',
           gap: 16,
           background: '#fafafa',
+          height: '100vh',
+          overflowY: 'auto',
         }}
       >
-        <section
-          style={{
-            border: '1px solid #e5e7eb',
-            borderRadius: 8,
-            padding: 12,
-            background: '#fff',
-          }}
-        >
-          <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 8 }}>章节简介</div>
-          <div style={{ marginBottom: 6 }}>
-            <span style={{ color: '#6b7280' }}>名称：</span>
-            <span>{chapter?.name ?? `章节 ${chapterId}`}</span>
-          </div>
-          <div>
-            <div style={{ color: '#6b7280', marginBottom: 4 }}>背景：</div>
-            <div style={{ whiteSpace: 'pre-wrap', color: '#111827' }}>
-              {chapter?.background ?? '（暂未获取到背景信息）'}
-            </div>
-          </div>
-        </section>
+        <WorldPanelComponent 
+          chapter={chapter}
+          chapterId={chapterId}
+          worldContext={worldContext}
+        />
 
-        <section
-          style={{
-            border: '1px solid #e5e7eb',
-            borderRadius: 8,
-            padding: 12,
-            background: '#fff',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 8,
-          }}
-        >
-          <div style={{ fontWeight: 600, fontSize: 16 }}>故事集</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 240, overflowY: 'auto' }}>
-            {novels.length === 0 ? (
-              <div style={{ color: '#6b7280' }}>暂无故事记录</div>
-            ) : (
-              novels.map((n) => (
-                <div
-                  key={n.id}
-                  style={{
-                    border: '1px solid #e5e7eb',
-                    borderRadius: 6,
-                    padding: 8,
-                    background: '#fff',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s ease',
-                  }}
-                  onClick={() => openNovelModal(n)}
-                  onMouseEnter={(e) => {
-                    (e.currentTarget as HTMLDivElement).style.borderColor = '#93c5fd';
-                    (e.currentTarget as HTMLDivElement).style.backgroundColor = '#f0f9ff';
-                  }}
-                  onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLDivElement).style.borderColor = '#e5e7eb';
-                    (e.currentTarget as HTMLDivElement).style.backgroundColor = '#fff';
-                  }}
-                >
-                  <div style={{ fontWeight: 500 }}>{n.title || '未命名故事'}</div>
-                  <div style={{ fontSize: 12, color: '#6b7280' }}>{new Date(n.create_time).toLocaleString()}</div>
-                </div>
-              ))
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={handleGenerateStory}
-            style={{
-              marginTop: 8,
-              padding: '8px 12px',
-              borderRadius: 6,
-              border: '1px solid #e5e7eb',
-              background: generatingStory ? '#f3f4f6' : '#f9fafb',
-              cursor: generatingStory ? 'not-allowed' : 'pointer',
-              color: generatingStory ? '#9ca3af' : '#374151',
-            }}
-            disabled={generatingStory}
-          >
-            {generatingStory ? '生成中...' : '生成故事'}
-          </button>
-          {generateStoryError && (
-            <div style={{ color: '#ef4444', marginTop: 8 }}>{generateStoryError}</div>
-          )}
-        </section>
+        <NovelGenerationComponent
+          chapter={chapter}
+          chapterId={chapterId}
+          userId={userId}
+          worldContext={worldContext}
+          novels={novels}
+          messages={messages}
+          onNovelsChange={setNovels}
+          socket={socket}
+          isConnected={isConnected}
+        />
       </aside>
     );
-  }, [chapter?.name, chapter?.background, novels, chapterId, generatingStory, generateStoryError]);
+  }, [chapter, chapterId, worldContext, novels, messages, socket, isConnected]);
 
   const paper = useMemo(() => {
     return (
@@ -632,7 +504,7 @@ export default function ChapterPage() {
                     maxWidth: '100%',
                     padding: '8px 12px',
                     borderRadius: 8,
-                    background: '#ffffff', // 与 paper 背景一致
+                    background: '#ffffff',
                     border: hoveredId === m.id ? '1px solid #9ca3af' : '1px solid transparent',
                     transition: 'border-color 120ms ease',
                     color: '#111827',
@@ -641,22 +513,25 @@ export default function ChapterPage() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     {editingId === m.id ? (
                       <input
-                        type="text"
-                        value={editText}
-                        onChange={(e) => setEditText(e.target.value)}
-                        onKeyDown={handleEditKeyDown}
-                        autoFocus
-                        style={{
-                          flex: 1,
-                          border: '1px solid #d1d5db',
-                          borderRadius: 6,
-                          padding: '6px 8px',
-                          outline: 'none',
-                        }}
-                        placeholder="编辑当前内容，按 Enter 提交"
-                      />
+                          ref={editInputRef}
+                          type="text"
+                          value={editText}
+                          onChange={(e) => setEditText(e.target.value)}
+                          onKeyDown={handleEditKeyDown}
+                          autoFocus
+                          style={{
+                            flex: 1,
+                            border: '1px solid #d1d5db',
+                            borderRadius: 6,
+                            padding: '6px 8px',
+                            outline: 'none',
+                          }}
+                          placeholder="编辑当前内容，按 Enter 提交"
+                        />
                     ) : (
-                      <div style={{ flex: 1, whiteSpace: 'pre-wrap' }}>{m.content}</div>
+                      <div style={{ flex: 1, whiteSpace: 'pre-wrap' }}>
+                        {m.content.replace(/^(正文：|开场白：)/, '')}
+                      </div>
                     )}
                     {hoveredId === m.id && editingId !== m.id && (
                       <button
@@ -680,62 +555,167 @@ export default function ChapterPage() {
                   </div>
                 </div>
               ))}
+              {isStreaming && streamingMessage && (
+                <div
+                  style={{
+                    display: 'block',
+                    maxWidth: '100%',
+                    padding: '8px 12px',
+                    borderRadius: 8,
+                    background: '#f0f9ff',
+                    border: '1px solid #3b82f6',
+                    transition: 'border-color 120ms ease',
+                    color: '#111827',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ flex: 1, whiteSpace: 'pre-wrap' }}>
+                      {streamingMessage.replace(/^正文：/, '')}
+                      <span style={{ animation: 'pulse 1s infinite' }}>▊</span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
       </div>
     );
-  }, [messages, hoveredId, loading, error, editingId, editText, saving, generatedStoryContent, generateStoryTitle]);
+  }, [messages, hoveredId, loading, error, editingId, editText, saving, isStreaming, streamingMessage]);
 
-  // 建议面板（位于写作区与右侧栏之间）
-  const suggestionPanel = useMemo(() => {
+  const leftSidebar = useMemo(() => {
     return (
       <aside
         style={{
-          width: 280,
-          borderLeft: '1px solid #e5e7eb',
-          borderRight: '1px solid #e5e7eb',
-          background: '#f8fafc',
-          padding: 12,
+          width: 320,
+          borderRight: '1px solid #eee',
+          padding: 16,
           display: 'flex',
           flexDirection: 'column',
-          gap: 8,
+          gap: 16,
+          background: '#fafafa',
+          height: '100vh',
+          overflowY: 'auto',
         }}
       >
-        <div style={{ fontWeight: 600, fontSize: 16 }}>灵感建议</div>
-        {editingId == null ? (
-          <div style={{ color: '#6b7280' }}>暂无编辑内容</div>
-        ) : suggestionsLoading ? (
-          <div style={{ color: '#6b7280' }}>生成建议中...</div>
-        ) : suggestionsError ? (
-          <div style={{ color: '#ef4444' }}>{suggestionsError}</div>
-        ) : suggestions.length === 0 ? (
-          <div style={{ color: '#6b7280' }}>暂无建议</div>
-        ) : (
-          suggestions.map((s, idx) => (
-            <button
-              key={idx}
-              type="button"
-              onClick={() => setEditText(s.content)}
-              style={{
-                textAlign: 'left',
-                padding: '8px 10px',
-                border: '1px solid #e5e7eb',
-                borderRadius: 6,
-                background: '#ffffff',
-                color: '#111827',
-                cursor: 'pointer',
-              }}
-              title="点击将建议填入输入气泡"
-            >
-              {s.content}
-            </button>
-          ))
-        )}
+        <StoryAnalysisComponent
+          chapter={chapter}
+          chapterId={chapterId}
+          worldContext={worldContext}
+          messages={messages}
+          lastAnalysisCount={lastAnalysisCount}
+          onLastAnalysisCountChange={setLastAnalysisCount}
+          onStoryAnalysisChange={setStoryAnalysis}
+          onStoryAnalysisExpose={setCurrentStoryAnalysis}
+        />
+        
+        <StoryGuideComponent
+          storyGuide={storyGuide}
+          isSavingGuide={isSavingGuide}
+          onStoryGuideChange={setStoryGuide}
+          onIsSavingGuideChange={setIsSavingGuide}
+        />
       </aside>
     );
-  }, [editingId, suggestions, suggestionsLoading, suggestionsError]);
+  }, [chapter, chapterId, worldContext, messages, lastAnalysisCount, currentStoryAnalysis, storyGuide, isSavingGuide]);
 
+  const suggestionPanel = useMemo(() => {
+    return (
+      <SuggestionsComponent
+        editingId={editingId}
+        suggestions={suggestions}
+        suggestionsLoading={suggestionsLoading}
+        suggestionsError={suggestionsError}
+        onEditTextChange={setEditText}
+        onSuggestionClick={handleSuggestionClick}
+      />
+    );
+  }, [editingId, suggestions, suggestionsLoading, suggestionsError, setEditText]);
+
+  const mobileBottomBar = useMemo(() => {
+    if (!isMobile) return null;
+    
+    return (
+      <div
+        style={{
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: 60,
+          backgroundColor: '#ffffff',
+          borderTop: '1px solid #e5e7eb',
+          display: 'flex',
+          justifyContent: 'space-around',
+          alignItems: 'center',
+          zIndex: 900,
+        }}
+      >
+        <button
+          onClick={() => togglePanel('left')}
+          style={{
+            flex: 1,
+            height: '100%',
+            border: 'none',
+            background: activePanel === 'left' ? '#f0f9ff' : '#ffffff',
+            color: activePanel === 'left' ? '#2563eb' : '#6b7280',
+            fontSize: 14,
+            cursor: 'pointer',
+          }}
+        >
+          剧情分析
+        </button>
+        <button
+          onClick={() => togglePanel('suggestion')}
+          style={{
+            flex: 1,
+            height: '100%',
+            border: 'none',
+            background: activePanel === 'suggestion' ? '#f0f9ff' : '#ffffff',
+            color: activePanel === 'suggestion' ? '#2563eb' : '#6b7280',
+            fontSize: 14,
+            cursor: 'pointer',
+          }}
+        >
+          灵感建议
+        </button>
+        <button
+          onClick={() => togglePanel('right')}
+          style={{
+            flex: 1,
+            height: '100%',
+            border: 'none',
+            background: activePanel === 'right' ? '#f0f9ff' : '#ffffff',
+            color: activePanel === 'right' ? '#2563eb' : '#6b7280',
+            fontSize: 14,
+            cursor: 'pointer',
+          }}
+        >
+          世界面板
+        </button>
+      </div>
+    );
+  }, [isMobile, activePanel]);
+  
+  const mobileOverlay = useMemo(() => {
+    if (!isMobile || !activePanel) return null;
+    
+    return (
+      <div
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          zIndex: 899,
+        }}
+        onClick={closePanel}
+      />
+    );
+  }, [isMobile, activePanel]);
+  
   return (
     <div
       style={{
@@ -744,10 +724,86 @@ export default function ChapterPage() {
         overflow: 'hidden',
       }}
     >
-      {paper}
-      {suggestionPanel}
-      {sidebar}
-      <NovelDetailModal />
+      {isMobile ? (
+        <>
+          <div
+            style={{
+              flex: 1,
+              overflow: 'hidden',
+              paddingBottom: 60,
+            }}
+          >
+            {paper}
+          </div>
+          
+          {(activePanel === 'left' || activePanel === 'suggestion' || activePanel === 'right') && (
+            <div
+              style={{
+                position: 'fixed',
+                top: 0,
+                right: activePanel === 'right' ? 0 : undefined,
+                left: activePanel === 'left' || activePanel === 'suggestion' ? 0 : undefined,
+                width: '80%',
+                maxWidth: 400,
+                height: '100vh',
+                backgroundColor: '#ffffff',
+                zIndex: 900,
+                overflowY: 'auto',
+                boxShadow: '0 0 20px rgba(0, 0, 0, 0.15)',
+              }}
+            >
+              <div
+                style={{
+                  position: 'sticky',
+                  top: 0,
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  padding: 16,
+                  backgroundColor: '#ffffff',
+                  borderBottom: '1px solid #e5e7eb',
+                  zIndex: 10,
+                }}
+              >
+                <h3 style={{ margin: 0, fontSize: 18 }}>
+                  {activePanel === 'left' && '剧情分析'}
+                  {activePanel === 'suggestion' && '灵感建议'}
+                  {activePanel === 'right' && '世界面板'}
+                </h3>
+                <button
+                  onClick={closePanel}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    fontSize: 24,
+                    cursor: 'pointer',
+                    color: '#6b7280',
+                    padding: '4px',
+                  }}
+                >
+                  &times;
+                </button>
+              </div>
+              
+              <div style={{ padding: 16 }}>
+                {activePanel === 'left' && leftSidebar}
+                {activePanel === 'suggestion' && suggestionPanel}
+                {activePanel === 'right' && sidebar}
+              </div>
+            </div>
+          )}
+          
+          {mobileOverlay}
+          {mobileBottomBar}
+        </>
+      ) : (
+        <>
+          {leftSidebar}
+          {paper}
+          {suggestionPanel}
+          {sidebar}
+        </>
+      )}
     </div>
   );
 }

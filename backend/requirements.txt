@@ -4,3 +4,7 @@ flask-cors
 python-dotenv
 flask-sqlalchemy
 psycopg2-binary
+flask-socketio
+python-socketio
+hypercorn
+websockets

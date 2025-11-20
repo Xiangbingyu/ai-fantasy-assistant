@@ -66,12 +66,14 @@ def get_chapters_by_world_and_creator(world_id):
     try:
         creator_user_id = request.args.get('creator_user_id', type=int)
         if not creator_user_id:
-            return jsonify({'error': '缺少creator_user_id参数'}), 400
-            
-        chapters = Chapter.query.filter_by(
-            world_id=world_id,
-            creator_user_id=creator_user_id
-        ).all()
+            # 如果没有提供creator_user_id，获取该世界下的所有章节
+            chapters = Chapter.query.filter_by(world_id=world_id).all()
+        else:
+            # 如果提供了creator_user_id，按原逻辑过滤
+            chapters = Chapter.query.filter_by(
+                world_id=world_id,
+                creator_user_id=creator_user_id
+            ).all()
         
         result = [
             {
@@ -83,7 +85,7 @@ def get_chapters_by_world_and_creator(world_id):
                 'background': chapter.background,
                 'is_default': chapter.is_default,
                 'origin_chapter_id': chapter.origin_chapter_id,
-                'create_time': chapter.create_time.isoformat()
+                'create_time': chapter.create_time.isoformat() if hasattr(chapter.create_time, 'isoformat') else chapter.create_time
             } for chapter in chapters
         ]
         return jsonify(result)
@@ -142,7 +144,48 @@ def get_messages_by_chapter(chapter_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# 4. 获取指定chapter_id对应的全部NovelRecord信息
+# 新增：获取所有NovelRecord信息（小说集功能）
+@db_bp.route('/novels', methods=['GET'])
+def get_all_novels():
+    try:
+        # 获取查询参数，支持按用户ID筛选
+        user_id = request.args.get('user_id', type=int)
+        
+        query = NovelRecord.query
+        
+        if user_id:
+            query = query.filter_by(user_id=user_id)
+        
+        # 按创建时间倒序排列
+        novels = query.order_by(NovelRecord.create_time.desc()).all()
+        
+        result = []
+        for novel in novels:
+            # 获取关联的章节信息（可选，用于显示更多上下文）
+            chapter = Chapter.query.get(novel.chapter_id)
+            world = World.query.get(chapter.world_id) if chapter else None
+            
+            novel_data = {
+                'id': novel.id,
+                'chapter_id': novel.chapter_id,
+                'user_id': novel.user_id,
+                'title': novel.title,
+                'content': novel.content,
+                'create_time': novel.create_time.isoformat()
+            }
+            
+            # 添加关联信息（如果存在）
+            if chapter:
+                novel_data['chapter_name'] = chapter.name
+            if world:
+                novel_data['world_name'] = world.name
+                novel_data['world_id'] = world.id
+            
+            result.append(novel_data)
+        
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 @db_bp.route('/chapters/<int:chapter_id>/novels', methods=['GET'])
 def get_novels_by_chapter(chapter_id):
     try:
@@ -491,6 +534,82 @@ def create_user_world():
             'role': uw.role,
             'create_time': uw.create_time.isoformat()
         }), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+# 增加世界的popularity值
+@db_bp.route('/worlds/<int:world_id>/increase-popularity', methods=['POST'])
+def increase_world_popularity(world_id):
+    try:
+        # 查找世界是否存在
+        world = World.query.get(world_id)
+        if world is None:
+            return jsonify({'error': '世界不存在'}), 404
+        
+        # 增加popularity值
+        world.popularity = (world.popularity or 0) + 1
+        db.session.commit()
+        
+        return jsonify({
+            'message': 'popularity增加成功',
+            'world_id': world_id,
+            'new_popularity': world.popularity
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+# 删除世界及其所有相关数据
+@db_bp.route('/worlds/<int:world_id>', methods=['DELETE'])
+def delete_world(world_id):
+    try:
+        # 查找世界是否存在
+        world = World.query.get(world_id)
+        if world is None:
+            return jsonify({'error': '世界不存在'}), 404
+
+        # 1. 获取该世界下的所有章节ID
+        chapters = Chapter.query.filter_by(world_id=world_id).all()
+        chapter_ids = [chapter.id for chapter in chapters]
+        
+        # 2. 删除所有章节相关的消息和小说记录
+        deleted_messages = 0
+        deleted_novels = 0
+        for chapter_id in chapter_ids:
+            # 删除章节下的消息
+            deleted_messages += ConversationMessage.query.filter(
+                ConversationMessage.chapter_id == chapter_id
+            ).delete(synchronize_session=False)
+            
+            # 删除章节下的小说
+            deleted_novels += NovelRecord.query.filter(
+                NovelRecord.chapter_id == chapter_id
+            ).delete(synchronize_session=False)
+        
+        # 3. 删除所有章节
+        deleted_chapters = Chapter.query.filter_by(world_id=world_id).delete(synchronize_session=False)
+        
+        # 4. 删除用户与世界的关系记录
+        deleted_user_worlds = UserWorld.query.filter_by(world_id=world_id).delete(synchronize_session=False)
+        
+        # 5. 删除世界角色
+        deleted_characters = WorldCharacter.query.filter_by(world_id=world_id).delete(synchronize_session=False)
+        
+        # 6. 最后删除世界本身
+        db.session.delete(world)
+        db.session.commit()
+
+        return jsonify({
+            'message': '世界删除成功',
+            'world_id': world_id,
+            'deleted_chapters': deleted_chapters,
+            'deleted_messages': deleted_messages,
+            'deleted_novels': deleted_novels,
+            'deleted_user_worlds': deleted_user_worlds,
+            'deleted_characters': deleted_characters
+        }), 200
+
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500

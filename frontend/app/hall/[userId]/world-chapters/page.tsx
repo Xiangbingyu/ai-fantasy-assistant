@@ -31,22 +31,10 @@ export default function WorldChaptersPage() {
   // 【修改1：将enterFrom状态移到最顶部，确保先声明后使用】
   const [enterFrom, setEnterFrom] = useState<'sidebar' | 'card' | 'new' | 'unknown'>('unknown');
   // 1. 解析传递的数据结构：传递的章节需补全apiId和isSubmitted
-  const [passedWorldData, setPassedWorldData] = useState<{
-    name?: string;
-    tags?: string[];
-    isPublic?: boolean;
-    worldview?: string;
-    masterSetting?: string;
-    originWorldId?: number;
-    popularity?: number;
-    characters?: { name: string; background: string }[];
-    chapters?: Omit<ChapterForm, 'isSubmitted' | 'apiId'> & { apiId?: number }[]; // 兼容传递的apiId
-  } | null>(null);
 
   // 新增：章节创建成功的Toast状态
   const [showChapterToast, setShowChapterToast] = useState(false);
-  // 新增：控制“添加新章节”按钮权限
-  const [hasCreatedChapters, setHasCreatedChapters] = useState(false);
+  // 移除hasCreatedChapters状态，不再需要单独控制添加章节按钮
   // 新增：章节删除加载状态（键=章节前端id，值=是否正在删除，防止重复点击）
   const [chapterDeletingIds, setChapterDeletingIds] = useState<Record<string, boolean>>({});
 
@@ -58,80 +46,246 @@ export default function WorldChaptersPage() {
   const [currentWorldId, setCurrentWorldId] = useState<number | null>(null);
   // 新增：章节数据加载状态
   const [chapterDataLoading, setChapterDataLoading] = useState(false);
+  // 【新增：8个对话主角设定的拆分状态】
+  const [protagonistName, setProtagonistName] = useState(''); 
+  const [protagonistAppearance, setProtagonistAppearance] = useState(''); // 外貌特征
+  const [protagonistClothing, setProtagonistClothing] = useState(''); // 服饰风格
+  const [protagonistBackground, setProtagonistBackground] = useState(''); // 人物背景
+  const [protagonistPersonality, setProtagonistPersonality] = useState(''); // 性格特征
+  const [protagonistLanguage, setProtagonistLanguage] = useState(''); // 语言风格
+  const [protagonistBehavior, setProtagonistBehavior] = useState(''); // 行为逻辑
+  const [protagonistPsychology, setProtagonistPsychology] = useState(''); // 心理特质
 
+  // 【新增】解析后端返回的正则编码字符串，提取7个主角设定字段
+  const parseMasterSetting = (encodedStr: string) => {
+
+    interface FieldMap {
+    '名字': string; // 新增名字的映射
+    '外貌特征': string;
+    '服饰风格': string;
+    '人物背景': string;
+    '性格特征': string;
+    '语言风格': string;
+    '行为逻辑': string;
+    '心理特质': string;
+    }
+
+  // 字段映射：后端编码的key → 前端状态变量标识
+  const fieldMap: FieldMap = {
+    '名字': 'name', // 新增名字的前端状态标识
+    '外貌特征': 'appearance',
+    '服饰风格': 'clothing',
+    '人物背景': 'background',
+    '性格特征': 'personality',
+    '语言风格': 'language',
+    '行为逻辑': 'behavior',
+    '心理特质': 'psychology'
+  };
+
+  // 初始化解析结果（默认空字符串，对应7个输入框）
+  const result = {
+    name: ' ', // 新增名字字段，默认空格避免未填写时覆盖
+    appearance: '',
+    clothing: '',
+    background: '',
+    personality: '',
+    language: '',
+    behavior: '',
+    psychology: ''
+  };
+
+  // 若后端返回空字符串，直接返回默认结果
+  if (!encodedStr.trim()) return result;
+  console.log('解析master_setting字符串：', encodedStr);
+  // 步骤1：按字段分隔符 ||| 拆分字符串
+  const fieldArray = encodedStr.split('|||');
+
+  // 步骤2：遍历每个字段，用正则提取key和value
+  fieldArray.forEach(field => {
+    // 修改正则表达式，使用[s\S]匹配所有字符（包括换行符）
+    const match = field.match(/^(.+?)###([\s\S]+)$/);
+    if (match) {
+      const [, fieldKey, fieldValue] = match;
+      // 关键：将 fieldKey 断言为 FieldMap 的合法键类型（keyof FieldMap）
+      const validKey = fieldKey as keyof FieldMap;
+      // 步骤3：将“未填写”转为空字符串
+      const realValue = fieldValue === '未填写' ? '' : fieldValue;
+      // 步骤4：还原换行符（将转义的换行符\n转回实际换行符）
+      const restoredValue = realValue.replace(/\\n/g, '\n');
+      // 步骤5：只有当键存在于 fieldMap 中时，才赋值（避免无效键）
+      if (validKey in fieldMap) {
+        result[fieldMap[validKey] as keyof typeof result] = restoredValue;
+      }
+    }
+    });
+
+    return result;
+  }
 
   useEffect(() => {
-    try {
-      const worldName = searchParams.get('worldName');
-      const isPublic = searchParams.get('isPublic');
-      const worldview = searchParams.get('worldview');
-      const masterSetting = searchParams.get('masterSetting');
-      const originWorldId = searchParams.get('originWorldId');
-      const popularity = searchParams.get('popularity');
-      const tagsStr = searchParams.get('tags');
-      const charactersStr = searchParams.get('characters');
-      const chaptersStr = searchParams.get('chapters');
-      // 1. 新增：从 URL 参数中获取 from（来源标识）
-      const from = searchParams.get('from') as 'sidebar' | 'card' | null;
-      console.log('URL中的from参数：', from); 
-
-      const parsedData: any = {};
-      if (worldName) parsedData.name = decodeURIComponent(worldName);
-      if (isPublic) parsedData.isPublic = isPublic === 'true';
-      if (worldview) parsedData.worldview = decodeURIComponent(worldview);
-      if (masterSetting) parsedData.masterSetting = decodeURIComponent(masterSetting);
-      if (originWorldId) parsedData.originWorldId = Number(originWorldId);
-      if (popularity) parsedData.popularity = Number(popularity);
-      if (tagsStr) parsedData.tags = JSON.parse(decodeURIComponent(tagsStr));
-      // 2. 新增：将 from 存储到 parsedData 中
-      if (from) parsedData.from = from;
-
-      if (from === 'sidebar' && originWorldId) {
-        const worldId = Number(originWorldId);
-        if (!isNaN(worldId)) {
-          setCurrentWorldId(worldId); // 自动设置世界ID，跳过创建
-        }
-      }
-
-      // 【此处now使用enterFrom已声明，无报错】
-      if (parsedData.from === 'sidebar') {
-        setEnterFrom('sidebar'); // 从侧边栏进入
-      } else if (parsedData.from === 'card') {
-        setEnterFrom('card'); // 从公开卡片进入
-      } else if (!originWorldId) {
-        setEnterFrom('new'); // 无 originWorldId → 新建世界（直接点“立即创作”）
-      } else {
-        setEnterFrom('unknown'); // 异常情况
-      }
-
-      // 处理角色解析
-      if (charactersStr) {
-        const decodedCharacters = decodeURIComponent(charactersStr);
-        parsedData.characters = JSON.parse(decodedCharacters);
-      }
-
-      // 处理章节解析：补全apiId（传递的有则用，无则null）和isSubmitted（默认false）
-      if (chaptersStr) {
-        const decodedChapters = decodeURIComponent(chaptersStr);
-        const rawChapters = JSON.parse(decodedChapters) as Omit<ChapterForm, 'isSubmitted' | 'apiId'> & { apiId?: number }[];
-        parsedData.chapters = rawChapters.map(ch => ({
-          ...ch,
-          apiId: ch.apiId || null, // 传递的apiId或默认null
-          isSubmitted: false // 初始未提交
-        }));
-        console.log('解析得到的章节数据（含apiId）：', parsedData.chapters);
-      }
-
-
-      console.log('解析得到的传递世界数据：', parsedData);
-      // 3. 新增：打印解析到的来源，验证是否成功接收
-      console.log('解析得到的来源标识（from）：', parsedData.from);
-      setPassedWorldData(parsedData);
-    } catch (err) {
-      console.error('解析传递的世界数据失败：', err);
-      setPassedWorldData(null);
+  try {
+    // 1. 仅解析2个必要参数：worldId（核心）和from（来源标识）
+    const worldIdStr = searchParams.get('worldId');
+    const from = searchParams.get('from') as 'sidebar' | 'card' | null;
+    
+    // 2. 处理worldId：转为数字，无效则设为null
+    const worldId = worldIdStr ? (isNaN(Number(worldIdStr)) ? null : Number(worldIdStr)) : null;
+    setCurrentWorldId(worldId); // 直接设置当前世界ID，无需依赖originWorldId
+    
+    // 3. 处理from：确定进入来源，默认unknown
+    if (from === 'sidebar') {
+      setEnterFrom('sidebar');
+    } else if (from === 'card') {
+      setEnterFrom('card');
+    } else if (!worldId) { // 无worldId → 新建世界
+      setEnterFrom('new');
+    } else {
+      setEnterFrom('unknown');
     }
-  }, [searchParams]);
+
+    console.log('解析到的关键参数：', { worldId, from });
+
+  } catch (err) {
+    console.error('解析URL关键参数失败：', err);
+    setCurrentWorldId(null);
+    setEnterFrom('unknown');
+  }
+}, [searchParams]);
+
+  // 新增：通过worldId获取该世界的章节数据
+  const fetchWorldChapters = async (worldId: number) => {
+    setChapterDataLoading(true);
+    setError(null);
+
+    try {
+      // 根据访问来源决定是否传递creator_user_id参数
+      // 从世界卡片进入时(enterFrom === 'card')不传递creator_user_id，这样非创造者也能看到章节
+      const url = enterFrom === 'card' 
+        ? `/api/db/worlds/${worldId}/chapters` 
+        : `/api/db/worlds/${worldId}/chapters?creator_user_id=${currentUserId}`;
+      
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('加载章节数据失败');
+
+      const chapterData = await res.json();
+      console.log('从接口获取的章节数据：', chapterData);
+
+      let formattedChapters: ChapterForm[] = [];
+      if (chapterData.length === 0) {
+        // 无章节时初始化默认章节
+        formattedChapters = [{
+          id: 'default-1',
+          apiId: null,
+          name: '',
+          opening: '',
+          background: '',
+          isSubmitted: false
+        }];
+      } else {
+        // 格式化接口返回的章节数据（匹配ChapterForm类型）
+        formattedChapters = chapterData.map((ch: any) => ({
+          id: ch.id?.toString() || Date.now().toString(), // 转为前端字符串ID
+          apiId: ch.id ? Number(ch.id) : null, // 存储后端真实ID
+          name: ch.name || '',
+          opening: ch.opening || '',
+          background: ch.background || '',
+          isSubmitted: true // 接口返回的章节都是已提交的
+        }));
+      }
+
+      setChapters(formattedChapters);
+      // 移除setHasCreatedChapters调用，因为该状态变量已删除
+
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : '加载章节时发生未知错误';
+      setError(errMsg);
+      console.error(errMsg, err);
+
+      // 错误时初始化默认章节
+      setChapters([{
+        id: 'default-err-1',
+        apiId: null,
+        name: '',
+        opening: '',
+        background: '',
+        isSubmitted: false
+      }]);
+    } finally {
+      setChapterDataLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    // 仅当worldId存在且非新建状态时，才请求数据
+    if (!currentWorldId) return;
+
+    const fetchWorldDetail = async () => {
+    setWorldLoading(true); // 复用现有加载状态
+    setError(null);
+
+    try {
+      // 调用接口获取世界详情（包含正则编码的master_setting）
+      const res = await fetch(`/api/db/worlds/${currentWorldId}`);
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `获取世界ID:${currentWorldId}的详情失败`);
+      }
+
+      const worldDetail = await res.json();
+      console.log('从接口获取的世界详情：', worldDetail);
+
+      // --------------------------
+      // 【关键新增】解析并填充7个输入框
+      // --------------------------
+      if (worldDetail.master_setting) {
+        // 1. 调用解析函数，得到7个字段的具体值
+        const parsedFields = parseMasterSetting(worldDetail.master_setting);
+        // 2. 同步到7个输入框对应的状态（自动填充输入框）
+        setProtagonistName(parsedFields.name);
+        setProtagonistAppearance(parsedFields.appearance);
+        setProtagonistClothing(parsedFields.clothing);
+        setProtagonistBackground(parsedFields.background);
+        setProtagonistPersonality(parsedFields.personality);
+        setProtagonistLanguage(parsedFields.language);
+        setProtagonistBehavior(parsedFields.behavior);
+        setProtagonistPsychology(parsedFields.psychology);
+      }
+
+      // （原有逻辑：同步世界表单、角色、章节状态，保持不变）
+      setWorldForm({
+        user_id: currentUserId,
+        name: worldDetail.name || '',
+        tags: worldDetail.tags || [],
+        // 根据需求，无论从哪里进入，公开状态都默认为false，只有用户手动选择后才会变为true
+        is_public: false,
+        worldview: worldDetail.worldview || '',
+        master_setting: worldDetail.master_setting || '', // 保留原始编码字符串（可选）
+        origin_world_id: worldDetail.origin_world_id || null,
+        popularity: 0, // 新建世界时强制设为0，避免复用原世界的popularity
+        characters: worldDetail.main_characters || []
+      });
+
+      const syncedCharacters = (worldDetail.main_characters || []).map((char: any, index: number) => ({
+        id: index + 1,
+        world_id: currentWorldId,
+        name: char.name || '',
+        background: char.background || ''
+      }));
+      setCharacters(syncedCharacters);
+
+      fetchWorldChapters(currentWorldId);
+
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : '获取世界详情异常';
+      setError(errMsg);
+      console.error(errMsg, err);
+    } finally {
+      setWorldLoading(false);
+    }
+  };
+
+  fetchWorldDetail();
+}, [currentWorldId, enterFrom, currentUserId]); // 依赖worldId和进入状态
 
   // 【新增：from是sidebar时，自动加载章节数据】
   useEffect(() => {
@@ -142,40 +296,8 @@ export default function WorldChaptersPage() {
     setChapterDataLoading(true);
     setError(null);
 
-    const fetchSidebarWorldChapters = async () => {
-      try {
-        // 请求该世界的章节数据（接口需返回该worldId对应的所有章节）
-        const res = await fetch(
-          `/api/db/worlds/${currentWorldId}/chapters?creator_user_id=${currentUserId}`
-        );
-        if (!res.ok) throw new Error('加载章节数据失败');
-
-        const chapterData: ChapterForm[] = await res.json();
-        console.log('后端返回的章节原始数据：', chapterData); 
-        // 处理章节数据（补全isSubmitted为true，因为是已创建的章节）
-        const formattedChapters = chapterData.map(ch => ({
-          ...ch,
-          isSubmitted: true,
-          apiId: ch.id || null, // 直接使用后端返回的数字ID，类型匹配`number | null`
-          id: ch.id.toString() // 前端ID保持字符串类型
-        }));
-
-        // 更新章节状态，显示已有内容
-        setChapters(formattedChapters);
-        // 同时更新hasCreatedChapters，允许添加新章节
-        setHasCreatedChapters(formattedChapters.length > 0);
-      } catch (err) {
-        const errMsg = err instanceof Error ? err.message : '加载章节时发生未知错误';
-        setError(errMsg);
-        console.error(errMsg, err);
-      } finally {
-        // 结束加载状态
-        setChapterDataLoading(false);
-      }
-  };
-
-  fetchSidebarWorldChapters();
-}, [enterFrom, currentWorldId]); // 依赖from和世界ID，变化时重新加载
+    fetchWorldChapters(currentWorldId);
+  }, [enterFrom, currentWorldId]); // 依赖from和世界ID，变化时重新加载
 
 
   // 世界表单状态（保持不变）
@@ -186,37 +308,17 @@ export default function WorldChaptersPage() {
 
   const [worldForm, setWorldForm] = useState<WorldFormState>({
     user_id: currentUserId,
-    name: passedWorldData?.name || '',
-    tags: passedWorldData?.tags || [],
-    is_public: passedWorldData?.isPublic || false,
-    worldview: passedWorldData?.worldview || '',
-    master_setting: passedWorldData?.masterSetting || '',
-    origin_world_id: passedWorldData?.originWorldId || null,
-    popularity: passedWorldData?.popularity || 0,
-    characters: passedWorldData?.characters?.map(char => ({
-      name: char.name,
-      background: char.background
-    })) || []
+    name: '', // 空白初始值
+    tags: [], // 空白初始值
+    is_public: false,
+    worldview: '', // 空白初始值
+    master_setting: '', // 空白初始值
+    origin_world_id: null,
+    popularity: 0, // 新建世界时默认为0
+    characters: [] // 空白初始值
   });
 
-  useEffect(() => {
-    if (passedWorldData) {
-      setWorldForm(prev => ({
-        ...prev,
-        name: passedWorldData.name || '',
-        tags: passedWorldData.tags || [],
-        is_public: passedWorldData.isPublic || false,
-        worldview: passedWorldData.worldview || '',
-        master_setting: passedWorldData.masterSetting || '',
-        origin_world_id: passedWorldData.originWorldId || null,
-        popularity: passedWorldData.popularity || 0,
-        characters: passedWorldData.characters?.map(char => ({
-          name: char.name,
-          background: char.background
-        })) || []
-      }));
-    }
-  }, [passedWorldData]);
+
 
 
   // 标签输入状态（完全不变）
@@ -224,53 +326,21 @@ export default function WorldChaptersPage() {
 
   // 角色状态管理（完全不变）
   const [characters, setCharacters] = useState<Character[]>(() => {
-    if (passedWorldData?.characters?.length) {
-      return passedWorldData.characters.map((char, index) => ({
-        id: index + 1,
-        world_id: passedWorldData.originWorldId || 0,
-        name: char.name || '',
-        background: char.background || ''
-      }));
-    }
     return [{ id: 1, world_id: 1, name: '', background: '' }];
   });
 
-  useEffect(() => {
-    if (passedWorldData?.characters?.length) {
-      const syncedCharacters = passedWorldData.characters.map((char, index) => ({
-        id: index + 1,
-        world_id: passedWorldData.originWorldId || 0,
-        name: char.name || '',
-        background: char.background || ''
-      }));
-      setCharacters(syncedCharacters);
-      console.log("获取人物数据成功", syncedCharacters)
-    }
-  }, [passedWorldData]);
 
-  // 2. 章节表单状态：初始化时apiId设为null
-  const [chapters, setChapters] = useState<ChapterForm[]>(() => {
-    if (passedWorldData?.chapters?.length) {
-      return passedWorldData.chapters as ChapterForm[]; // 传递的章节已含apiId
-    }
-    // 默认章节：apiId初始null
-    return [{
+  // 章节表单状态：只保留一个章节，与世界一起创建
+  const [chapters, setChapters] = useState<ChapterForm[]>([
+    {
       id: '1',
       apiId: null,
       name: '',
       opening: '',
       background: '',
       isSubmitted: false
-    }];
-  });
-
-  // 同步传递的章节数据（含apiId）
-  useEffect(() => {
-    if (passedWorldData?.chapters?.length) {
-      setChapters(passedWorldData.chapters as ChapterForm[]);
-      console.log('从URL参数加载章节数据（含apiId）：', passedWorldData.chapters);
     }
-  }, [passedWorldData?.chapters]);
+  ]);
 
 
   // 以下基础方法（世界表单/标签/角色/章节修改）保持不变
@@ -333,20 +403,17 @@ export default function WorldChaptersPage() {
     );
   };
 
-  // 3. 新增章节：apiId初始设为null
+  // 新增：添加章节函数
   const addChapter = () => {
-    const newId = Date.now().toString();
-    setChapters(prev => [
-      ...prev,
-      {
-        id: newId,
-        apiId: null, // 新章节默认无apiId
-        name: '',
-        opening: '',
-        background: '',
-        isSubmitted: false
-      }
-    ]);
+    const newId = `chapter-${Date.now()}`;
+    setChapters(prev => [...prev, {
+      id: newId,
+      apiId: null,
+      name: '',
+      opening: '',
+      background: '',
+      isSubmitted: false
+    }]);
   };
 
   // 【关键修改1】修改removeChapter：新增后端DELETE请求逻辑（保持不变）
@@ -395,28 +462,73 @@ export default function WorldChaptersPage() {
     }
   };
 
-  // 提交世界表单（保持不变）
+  // 提交世界表单（修改：汇总7个对话主角设定项，支持创建多个章节）
   const handleCreateWorld = async () => {
-    setError(null);
-    setSuccess(null);
-    setWorldLoading(true);
+  
+  setError(null);
+  setSuccess(null);
+  setWorldLoading(true);
+  
+  // 记录是否需要增加popularity（如果是已有世界）
+  const shouldIncreasePopularity = !!currentWorldId && enterFrom !== 'new';
+  
+  // 校验必填字段
+  if (!worldForm.name.trim()) {
+    setError('世界名称不能为空');
+    setWorldLoading(false);
+    return;
+  }
 
-    if (!worldForm.name.trim()) {
-      setError('世界名称不能为空');
-      setWorldLoading(false);
-      return;
-    }
+  if (!protagonistName.trim()) {
+    setError('主角名字不能为空');
+    setWorldLoading(false);
+    return;
+  }
 
-    const payload: CreateWorldPayload = {
-      ...worldForm,
-      user_id: currentUserId,
-      characters: characters.map(char => ({
-        name: char.name,
-        background: char.background
-      }))
-    };
+  // 校验所有章节名称必填
+  const emptyNameChapters = chapters.filter(chapter => !chapter.name.trim());
+  if (emptyNameChapters.length > 0) {
+    setError('所有章节名称不能为空');
+    setWorldLoading(false);
+    return;
+  }
+
+  // 【正则化编码核心】按规则拼接七个字段
+  const fields = [
+    { key: '名字', value: protagonistName }, // 新增的名字字段
+    { key: '外貌特征', value: protagonistAppearance },
+    { key: '服饰风格', value: protagonistClothing },
+    { key: '人物背景', value: protagonistBackground },
+    { key: '性格特征', value: protagonistPersonality },
+    { key: '语言风格', value: protagonistLanguage },
+    { key: '行为逻辑', value: protagonistBehavior },
+    { key: '心理特质', value: protagonistPsychology },
+  ];
+
+  // 拼接格式：key###value|||key###value...（空值用"未填写"）
+  // 注意：对字段值中的换行符进行转义处理，避免影响分隔符
+  const combinedMasterSetting = fields
+    .map(field => {
+      // 对字段值中的换行符进行转义，替换为\n字符串
+      const escapedValue = (field.value || '未填写').replace(/\n/g, '\\n');
+      return `${field.key}###${escapedValue}`;
+    })
+    .join('|||');
+
+  // 提交给后端的参数
+  const payload: CreateWorldPayload = {
+    ...worldForm,
+    user_id: currentUserId,
+    master_setting: combinedMasterSetting, // 正则化后的字符串
+    characters: characters.map(char => ({
+      name: char.name,
+      background: char.background
+    }))
+  };
+  
 
     try {
+      // 第一步：创建世界
       const worldResponse = await fetch('/api/db/worlds', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -452,43 +564,18 @@ export default function WorldChaptersPage() {
         console.log('用户与世界关联成功：', userWorldData);
       }
 
-      setSuccess('世界创建成功，已自动关联你的参与身份！');
-      setCurrentWorldId(worldId);
-
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '创建世界或关联身份时发生错误');
-    } finally {
-      setWorldLoading(false);
-    }
-  };
-
-  // 4. 提交章节表单：创建章节 + 发送章节消息（保持不变）
-  const handleCreateChapters = async () => {
-    setError(null);
-    setSuccess(null);
-    setChapterLoading(true);
-
-    // 筛选未提交且名称不为空的章节
-    const unSubmittedChapters = chapters.filter(ch => !ch.isSubmitted && ch.name.trim());
-    if (unSubmittedChapters.length === 0) {
-      setError('没有新的章节可提交（已提交的章节不会重复创建）');
-      setChapterLoading(false);
-      return;
-    }
-
-    try {
-      // 遍历提交未提交的章节，创建章节 + 发送消息
-      for (const chapter of unSubmittedChapters) {
-        // --------------------------
-        // 第一步：创建章节（原有逻辑）
-        // --------------------------
+      // 第二步：创建世界成功后，批量创建所有章节
+      const createdChapters = [];
+      
+      for (let i = 0; i < chapters.length; i++) {
+        const chapter = chapters[i];
         const chapterPayload: CreateChapterPayload = {
-          world_id: currentWorldId,
+          world_id: worldId,
           creator_user_id: currentUserId,
           name: chapter.name,
           opening: chapter.opening,
           background: chapter.background,
-          is_default: chapters.indexOf(chapter) === 0,
+          is_default: i === 0, // 第一个章节设为默认章节
           origin_chapter_id: null
         };
 
@@ -500,70 +587,78 @@ export default function WorldChaptersPage() {
 
         const chapterData = await chapterResponse.json();
         if (!chapterResponse.ok) {
-          throw new Error(chapterData.error || `创建章节 "${chapter.name}" 失败`);
+          throw new Error(chapterData.error || `创建章节失败: ${chapter.name}`);
         }
 
-        // 拿到章节真实ID（chapterData.id 即接口返回的 chapter_id）
+        // 拿到章节真实ID
         const realChapterId = chapterData.id;
         console.log(`章节 "${chapter.name}" 创建成功，真实ID：${realChapterId}`);
+        createdChapters.push({ ...chapter, apiId: realChapterId, isSubmitted: true });
 
-        // --------------------------
-        // 第二步：创建章节成功后，发送章节消息（新增逻辑）
-        // --------------------------
-        // 1. 构建消息Payload（按接口要求）
-        const messagePayload = {
-          user_id: currentUserId, // 发送者ID（当前用户）
-          role: "user", // 角色（固定为user，按接口示例）
-          // 消息内容：结合章节开篇和背景，生成初始请求（可自定义）
-          content: `${chapter.opening || '无'}`,
-          create_time: new Date().toISOString() // 当前时间（ISO格式）
-        };
+        // 第三步：为每个章节创建初始消息
+        if (chapter.opening) {
+          const messagePayload = {
+            user_id: currentUserId,
+            role: "user",
+            content: `${chapter.opening || '无'}`,
+            create_time: new Date().toISOString()
+          };
 
-        // 2. 发送消息请求（URL替换为真实chapter_id）
-        const messageResponse = await fetch(`/api/db/chapters/${realChapterId}/messages`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(messagePayload)
-        });
+          const messageResponse = await fetch(`/api/db/chapters/${realChapterId}/messages`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(messagePayload)
+          });
 
-        // 3. 处理消息响应（单独捕获错误，不影响章节创建）
-        if (messageResponse.ok) {
-          const messageData = await messageResponse.json();
-          console.log(`章节 "${chapter.name}" 消息发送成功：`, messageData);
-        } else {
-          const messageError = await messageResponse.json();
-          console.warn(`章节 "${chapter.name}" 消息发送失败：`, messageError.error || '未知错误');
+          if (messageResponse.ok) {
+            const messageData = await messageResponse.json();
+            console.log(`章节消息发送成功：`, messageData);
+          } else {
+            const messageError = await messageResponse.json();
+            console.warn(`章节消息发送失败：`, messageError.error || '未知错误');
+          }
         }
-
-        // --------------------------
-        // 第三步：更新章节状态（原有逻辑）
-        // --------------------------
-        setChapters(prev =>
-          prev.map(ch =>
-            ch.id === chapter.id
-              ? { ...ch, apiId: realChapterId, isSubmitted: true } // 存储真实ID
-              : ch
-          )
-        );
       }
 
-      // 所有章节处理完成后的反馈
-      setHasCreatedChapters(true);
-      setSuccess(`成功创建 ${unSubmittedChapters.length} 个章节，并自动发送初始消息！`);
-      setShowChapterToast(true);
-      setTimeout(() => setShowChapterToast(false), 3000);
-      document.querySelector('.bg-emerald-50')?.scrollIntoView({
-        behavior: 'smooth',
-        block: 'start'
-      });
+      // 更新前端状态
+      setCurrentWorldId(worldId);
+      setChapters(createdChapters);
+      // 如果用户是从公开世界卡片进入的，创建后更新状态为新建模式
+      if (enterFrom === 'card') {
+        setEnterFrom('new');
+      }
+      
+      // 确保新创建的世界popularity始终为0
+      setWorldForm(prev => ({
+        ...prev,
+        popularity: 0
+      }));
 
-    } catch (err) {
-      // 捕获章节创建错误（消息错误不进入此处）
-      setError(err instanceof Error ? err.message : '创建章节时发生错误');
-    } finally {
-      setChapterLoading(false);
-    }
+      setSuccess('你已成功创建世界和章节，点击下方进入章节开始创作');
+            setShowChapterToast(true);
+            setTimeout(() => setShowChapterToast(false), 3000);
+
+            // 如果是已有世界且不是新建模式，调用增加popularity的接口
+            if (shouldIncreasePopularity && currentWorldId) {
+              try {
+                await fetch(`/api/db/worlds/${currentWorldId}/increase-popularity`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' }
+                });
+                console.log('世界popularity已增加');
+              } catch (popularityError) {
+                console.warn('增加popularity失败，但不影响主要功能', popularityError);
+              }
+            }
+
+        } catch (err) {
+            setError(err instanceof Error ? err.message : '创建世界或章节时发生错误');
+        } finally {
+            setWorldLoading(false);
+        }
   };
+
+  // 移除handleCreateChapters函数，章节将与世界一起创建
 
   // 5. 章节跳转方法：拼接路径（/hall/用户ID/章节ID）（保持不变）
   const goToChapter = (chapterId: number) => {
@@ -573,7 +668,7 @@ export default function WorldChaptersPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-4 md:p-6 transition-colors duration-300">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-4 md:p-6 transition-colors duration-300" style={{fontSize: '18px'}}>
       {/* Toast提示（保持不变） */}
       {showChapterToast && (
         <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-emerald-600 text-white px-6 py-3 rounded-lg shadow-lg z-50">
@@ -602,7 +697,7 @@ export default function WorldChaptersPage() {
               height="28"
               viewBox="0 0 24 24"
               fill="none"
-              xmlns="http://www.w3.org/2000/svg"
+              xmlns="http://www.w3.org/2000/svg "
               style={{ transition: 'transform 0.3s ease', cursor: 'pointer' }}
               onMouseEnter={(e) => (e.currentTarget as SVGElement).style.transform = 'rotate(5deg)'}
               onMouseLeave={(e) => (e.currentTarget as SVGElement).style.transform = 'rotate(0)'}
@@ -637,11 +732,34 @@ export default function WorldChaptersPage() {
           世界与章节管理
         </h1>
 
+        {/* 标题下方的提示区域 - 整合两个提示 */}
+        <div className="space-y-4">
+          {/* 侧边栏进入提示 */}
+          {enterFrom === 'sidebar' && (
+            <div className="bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 p-3 rounded-lg border border-blue-100 dark:border-blue-800/50">
+              <svg className="w-4 h-4 inline-block mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+              </svg>
+              欢迎回到你的世界！你可以直接进入你的章节，如果想要修改，需在修改完成后点击「创建世界和章节」
+            </div>
+          )}
+          
+          {/* 公开世界模板引用提示 - 模仿侧边栏提示格式但保持黄色 */}
+          {enterFrom === 'card' && currentWorldId && (
+            <div className="bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 p-3 rounded-lg border border-amber-100 dark:border-amber-800/50">
+              <svg className="w-4 h-4 inline-block mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+              </svg>
+              您正在引用公开世界模板（ID: {currentWorldId}），点击「创建世界和章节」按钮即可进入您的世界
+            </div>
+          )}
+        </div>
+
         {/* 提示区域（保持不变） */}
         {error && (
           <div className="bg-rose-50 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300 p-4 rounded-lg mb-6 shadow-sm border border-rose-100 dark:border-rose-800/50 transition-all duration-300">
             <div className="flex items-center gap-2">
-              <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg ">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
               </svg>
               <span>{error}</span>
@@ -652,7 +770,7 @@ export default function WorldChaptersPage() {
         {success && (
           <div className="bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 p-4 rounded-lg mb-6 shadow-sm border border-emerald-100 dark:border-emerald-800/50 transition-all duration-300">
             <div className="flex items-center gap-2">
-              <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg ">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
               </svg>
               <span>{success}</span>
@@ -660,10 +778,10 @@ export default function WorldChaptersPage() {
           </div>
         )}
 
-        {/* 创建世界板块（保持不变） */}
+        {/* 创建世界板块（修改：对话主角设定全部改为input组件） */}
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6 mb-8 transition-all duration-300 hover:shadow-lg">
           <h2 className="text-xl font-semibold text-gray-800 dark:text-white mb-5 flex items-center gap-2">
-            <svg className="w-5 h-5 text-indigo-500 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <svg className="w-5 h-5 text-indigo-500 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg ">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
             </svg>
             创建新世界
@@ -672,7 +790,7 @@ export default function WorldChaptersPage() {
           <div className="space-y-5">
             {/* 创建世界表单内容（保持不变） */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">世界名称 *</label>
+              <label className="block text-xl font-medium text-gray-700 dark:text-gray-300 mb-1.5">世界名称 *</label>
               <input
                 type="text"
                 name="name"
@@ -684,7 +802,7 @@ export default function WorldChaptersPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">标签</label>
+              <label className="block text-xl font-medium text-gray-700 dark:text-gray-300 mb-1.5">标签</label>
               <form onSubmit={handleTagInput} className="flex gap-2 mb-3">
                 <input
                   type="text"
@@ -697,7 +815,7 @@ export default function WorldChaptersPage() {
                   type="submit"
                   className="px-4 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 transition-all duration-200 flex items-center gap-1.5 shadow-sm"
                 >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg ">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
                   </svg>
                   添加
@@ -717,7 +835,7 @@ export default function WorldChaptersPage() {
                       className="ml-1.5 text-indigo-500 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-200 transition-colors"
                       aria-label={`删除标签 ${tag}`}
                     >
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg ">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
                       </svg>
                     </button>
@@ -740,7 +858,7 @@ export default function WorldChaptersPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">世界观描述</label>
+              <label className="block text-xl font-medium text-gray-700 dark:text-gray-300 mb-1.5">世界观描述</label>
               <textarea
                 name="worldview"
                 value={worldForm.worldview}
@@ -750,19 +868,110 @@ export default function WorldChaptersPage() {
               />
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">核心设定</label>
+            {/* 【修改：对话主角设定全部改为input组件】 */}
+            {/* 【修改：对话主角设定 - 优化输入框高度，保留自动换行】 */}
+            <div className="mb-6">
+              <h3 className="text-xl font-semibold text-gray-800 dark:text-white mb-4">核心对话人物设定</h3>
+              
+              <div className="mb-3">
+                <label className="block text-xl-text-gray-500 dark:text-gray-400 mb-1">名字（必填）</label>
+                <input
+                  type="text"
+                  value={protagonistName}
+                  onChange={(e) => setProtagonistName(e.target.value)}
+                  className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 focus:border-indigo-500 dark:focus:border-indigo-400 transition-all duration-200 outline-none"
+                  placeholder="请输入主角名字（如：艾德里安、林月）"
+                  required
+                />
+              </div>
+            </div>
+
+
+            {/* 1. 外貌特征（可选）- 低初始高度，自动换行 */}
+            <div className="mb-3">
+              <label className="block text-xl text-gray-500 dark:text-gray-400 mb-1">外貌特征（可选）</label>
               <textarea
-                name="master_setting"
-                value={worldForm.master_setting}
-                onChange={handleWorldInputChange}
-                className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 focus:border-indigo-500 dark:focus:border-indigo-400 transition-all duration-200 outline-none min-h-[120px] resize-none"
-                placeholder="描述这个世界的核心规则和设定"
+                value={protagonistAppearance}
+                onChange={(e) => setProtagonistAppearance(e.target.value)}
+                className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 focus:border-indigo-500 dark:focus:border-indigo-400 transition-all duration-200 outline-none resize-y"
+                placeholder="如：银发紫眸、身高185cm、左脸颊有疤痕。可描述五官、身材、特殊标记等。"
+                rows={4} 
               />
             </div>
 
+            {/* 2. 服饰风格（可选）- 低初始高度，自动换行 */}
+            <div className="mb-3">
+              <label className="block text-xl text-gray-500 dark:text-gray-400 mb-1">服饰风格（可选）</label>
+              <textarea
+                value={protagonistClothing}
+                onChange={(e) => setProtagonistClothing(e.target.value)}
+                className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 focus:border-indigo-500 dark:focus:border-indigo-400 transition-all duration-200 outline-none resize-y"
+                placeholder="如：复古宫廷风，常穿深蓝色刺绣马甲配白色蕾丝衬衫，腰间系鎏金怀表链。"
+                rows={4}
+              />
+            </div>
+
+            {/* 3. 人物背景（可选）- 稍高但不夸张，自动换行 */}
+            <div className="mb-3">
+              <label className="block text-xl text-gray-500 dark:text-gray-400 mb-1">人物背景（可选）</label>
+              <textarea
+                value={protagonistBackground}
+                onChange={(e) => setProtagonistBackground(e.target.value)}
+                className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 focus:border-indigo-500 dark:focus:border-indigo-400 transition-all duration-200 outline-none resize-y"
+                placeholder="如：前帝国将军，因揭发宫廷阴谋被诬陷叛国罪流放。曾参与三次边境战争，手下有秘密亲兵。"
+                rows={4} 
+              />
+            </div>
+
+            {/* 4. 性格特征（可选）- 低初始高度，自动换行 */}
+            <div className="mb-3">
+              <label className="block text-xl text-gray-500 dark:text-gray-400 mb-1">性格特征（可选）</label>
+              <textarea
+                value={protagonistPersonality}
+                onChange={(e) => setProtagonistPersonality(e.target.value)}
+                className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 focus:border-indigo-500 dark:focus:border-indigo-400 transition-all duration-200 outline-none resize-y"
+                placeholder="如：外冷内热，表面疏离，实则重视身边人。决策果断但不鲁莽，习惯观察细节。"
+                rows={4}
+              />
+            </div>
+
+            {/* 5. 语言风格（可选）- 低初始高度，自动换行 */}
+            <div className="mb-3">
+              <label className="block text-xl text-gray-500 dark:text-gray-400 mb-1">语言风格（可选）</label>
+              <textarea
+                value={protagonistLanguage}
+                onChange={(e) => setProtagonistLanguage(e.target.value)}
+                className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 focus:border-indigo-500 dark:focus:border-indigo-400 transition-all duration-200 outline-none resize-y"
+                placeholder="如：说话简洁干练，少用修饰词，句尾常带反问。对长辈用敬语，态度直接。"
+                rows={4}
+              />
+            </div>
+
+            {/* 6. 行为逻辑（可选）- 低初始高度，自动换行 */}
+            <div className="mb-3">
+              <label className="block text-xl text-gray-500 dark:text-gray-400 mb-1">行为逻辑（可选）</label>
+              <textarea
+                value={protagonistBehavior}
+                onChange={(e) => setProtagonistBehavior(e.target.value)}
+                className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 focus:border-indigo-500 dark:focus:border-indigo-400 transition-all duration-200 outline-none resize-y"
+                placeholder="如：遇危险先找掩体，再判断敌人弱点。决策前列利弊清单，优先低风险方案。"
+                rows={4}
+              />
+            </div>
+
+            {/* 7. 心理特质（可选）- 低初始高度，自动换行 */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2.5">主要角色</label>
+              <label className="block text-xl text-gray-500 dark:text-gray-400 mb-1">心理特质（可选）</label>
+              <textarea
+                value={protagonistPsychology}
+                onChange={(e) => setProtagonistPsychology(e.target.value)}
+                className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 focus:border-indigo-500 dark:focus:border-indigo-400 transition-all duration-200 outline-none resize-y"
+                placeholder="如：因童年被弃，缺乏安全感，通过掌控环境获稳定感。有正义感，常陷入亲友与正义的矛盾。"
+                rows={4}
+              />
+            </div>
+            <div>
+              <label className="block text-xl font-medium text-gray-700 dark:text-gray-300 mb-2.5">其余角色</label>
 
               {characters.map((char, index) => (
                 <div key={char.id} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 mb-3.5 bg-gray-50 dark:bg-gray-800/50 transition-all duration-200 hover:border-indigo-200 dark:hover:border-indigo-700/50">
@@ -775,7 +984,7 @@ export default function WorldChaptersPage() {
                       className="text-sm text-rose-500 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                       aria-label={`删除角色 ${index + 1}`}
                     >
-                      <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                      <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg ">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
                       </svg>
                     </button>
@@ -805,211 +1014,168 @@ export default function WorldChaptersPage() {
                 onClick={addCharacter}
                 className="mt-1 px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-all duration-200 flex items-center gap-1.5 text-sm shadow-sm"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg ">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
                 </svg>
                 + 添加角色
               </button>
             </div>
 
+
+          </div>
+        </div>
+
+
+
+        {/* 章节管理板块：关键修改2——删除按钮添加enterFrom权限控制 */}
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6 transition-all duration-300 hover:shadow-lg">
+          <h2 className="text-xl font-semibold text-gray-800 dark:text-white mb-5 flex items-center gap-2">
+            <svg className="w-5 h-5 text-emerald-500 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg ">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
+            </svg>
+            章节信息（与世界一起创建）
+          </h2>
+
+          {/* 新建世界提示（保留） */}
+          {enterFrom === 'new' && (
+            <div className="bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 p-3 rounded-lg mb-4 border border-green-100 dark:border-green-800/50">
+              <svg className="w-4 h-4 inline-block mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
+              </svg>
+              你已成功创建世界和章节，点击进入章节开始创作
+            </div>
+          )}
+
+          <div className="space-y-5">
+            {currentWorldId && (
+              <p className="text-sm text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800/50 px-3 py-2 rounded-lg border border-gray-100 dark:border-gray-700">
+                <span className="font-medium text-gray-600 dark:text-gray-300">当前编辑的世界 ID:</span> {currentWorldId}
+              </p>
+            )}
+
+            {/* 章节列表：【关键修改】删除按钮添加enterFrom === 'card' 禁用条件 */}
+            {chapters.map((chapter, index) => (
+              <div
+                key={chapter.id}
+                className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 mb-3.5 bg-gray-50 dark:bg-gray-800/50 transition-all duration-200 hover:border-emerald-200 dark:hover:border-emerald-700/50"
+              >
+                {/* 章节标题+状态+删除+跳转按钮 */}
+                <div className="flex justify-between items-center mb-3">
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-medium text-gray-800 dark:text-white">章节 {index + 1}</h3>
+                    {/* 章节状态标签 */}
+                    {chapter.isSubmitted && (
+                      <span className="text-xl bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-2 py-0.5 rounded-full">
+                        已提交（ID: {chapter.apiId}）
+                      </span>
+                    )}
+                    {index === 0 && !chapter.isSubmitted && (
+                      <span className="text-xl bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800/50">
+                        默认章节（未提交）
+                      </span>
+                    )}
+                  </div>
+
+                  {/* 操作按钮组：删除 + 跳转 */}
+                  <div className="flex gap-2">
+                    {/* 跳转按钮：仅当apiId存在且用户是世界创作者时显示 */}
+                    {chapter.apiId && enterFrom !== 'card' && (
+                      <button
+                        type="button"
+                        onClick={() => chapter.apiId != null && goToChapter(chapter.apiId)}
+                        className="text-sm bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-3 py-1.5 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
+                      >
+                        进入章节
+                      </button>
+                    )}
+
+                    {/* 【关键修改】删除按钮：添加 enterFrom === 'card' 禁用条件 */}
+                    <button
+                      type="button"
+                      onClick={() => removeChapter(chapter.id)}
+                      disabled={chapters.length <= 1 || chapterDeletingIds[chapter.id] || enterFrom === 'card' || !currentWorldId}
+                      className={`text-sm text-rose-500 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors ${chapterDeletingIds[chapter.id] ? 'animate-pulse' : ''}`}
+                      aria-label={`删除章节 ${index + 1}`}
+                    >
+                      {chapterDeletingIds[chapter.id] ? (
+                        // 加载中：显示旋转图标
+                        <svg className="w-4.5 h-4.5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg ">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                        </svg>
+                      ) : (
+                        // 正常状态：显示删除图标
+                        <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg ">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                        </svg>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {/* 章节内容输入（保持不变） */}
+          <div className="space-y-3">
+            <input
+              type="text"
+              value={chapter.name}
+              onChange={(e) => handleChapterChange(chapter.id, 'name', e.target.value)}
+              className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-emerald-500 dark:focus:ring-emerald-400 focus:border-emerald-500 dark:focus:border-emerald-400 transition-all duration-200 outline-none"
+              placeholder="章节名称 *（如：第一章：初入魔法森林）"
+            />
+
+            <textarea
+              value={chapter.opening}
+              onChange={(e) => handleChapterChange(chapter.id, 'opening', e.target.value)}
+              className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-emerald-500 dark:focus:ring-emerald-400 focus:border-emerald-500 dark:focus:border-emerald-400 transition-all duration-200 outline-none min-h-[90px] resize-none"
+              placeholder="章节开篇"
+            />
+
+            <textarea
+              value={chapter.background}
+              onChange={(e) => handleChapterChange(chapter.id, 'background', e.target.value)}
+              className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-emerald-500 dark:focus:ring-emerald-400 focus:border-emerald-500 dark:focus:border-emerald-400 transition-all duration-200 outline-none min-h-[90px] resize-none"
+              placeholder="你扮演的角色设定"
+            />
+          </div>
+              </div>
+            ))}
+
+            {/* 移除章节操作按钮，章节将与世界一起创建 */}
+            
+            {/* 章节列表下方的添加章节按钮 */}
+            <button
+              type="button"
+              onClick={addChapter}
+              className="mb-4 px-4 py-2 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 rounded-lg hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-all duration-200 flex items-center gap-1.5 shadow-sm w-full justify-center"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg ">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+              </svg>
+              添加章节
+            </button>
+            
+            {/* 创建世界和章节按钮 */}
             <button
               onClick={handleCreateWorld}
               disabled={worldLoading}
-              className="w-full py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 font-medium shadow-sm flex items-center justify-center gap-2"
+              className="w-full py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 font-medium shadow-sm flex items-center justify-center gap-2 mt-6"
             >
               {worldLoading ? (
                 <>
-                  <svg className="w-4.5 h-4.5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <svg className="w-4.5 h-4.5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg ">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
                   </svg>
                   创建中...
                 </>
               ) : (
                 <>
-                  <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg ">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
                 </svg>
-                  创建世界
+                  创建世界和章节
                 </>
               )}
             </button>
           </div>
-        </div>
-
-        {/* 章节管理板块：关键修改2——删除按钮添加enterFrom权限控制 */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6 transition-all duration-300 hover:shadow-lg">
-          <h2 className="text-xl font-semibold text-gray-800 dark:text-white mb-5 flex items-center gap-2">
-            <svg className="w-5 h-5 text-emerald-500 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
-            </svg>
-            章节管理
-          </h2>
-
-          {/* 根据 from 显示不同提示（保持不变） */}
-          {enterFrom === 'sidebar' && (
-            <div className="bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 p-3 rounded-lg mb-4 border border-blue-100 dark:border-blue-800/50">
-              <svg className="w-4 h-4 inline-block mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-              </svg>
-              欢迎回到你的世界！可继续编辑已有的章节内容
-            </div>
-          )}
-          {enterFrom === 'card' && (
-            <div className="bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 p-3 rounded-lg mb-4 border border-purple-100 dark:border-purple-800/50">
-              <svg className="w-4 h-4 inline-block mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
-              </svg>
-              你正在编辑公开世界，修改后将同步更新公开内容
-            </div>
-          )}
-
-          {currentWorldId ? (
-            <div className="space-y-5">
-              <p className="text-sm text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800/50 px-3 py-2 rounded-lg border border-gray-100 dark:border-gray-700">
-                <span className="font-medium text-gray-600 dark:text-gray-300">当前编辑的世界 ID:</span> {currentWorldId}
-              </p>
-
-              {/* 章节列表：【关键修改】删除按钮添加enterFrom === 'card' 禁用条件 */}
-              {chapters.map((chapter, index) => (
-                <div
-                  key={chapter.id}
-                  className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 mb-3.5 bg-gray-50 dark:bg-gray-800/50 transition-all duration-200 hover:border-emerald-200 dark:hover:border-emerald-700/50"
-                >
-                  {/* 章节标题+状态+删除+跳转按钮 */}
-                  <div className="flex justify-between items-center mb-3">
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-medium text-gray-800 dark:text-white">章节 {index + 1}</h3>
-                      {/* 章节状态标签 */}
-                      {chapter.isSubmitted && (
-                        <span className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-2 py-0.5 rounded-full">
-                          已提交（ID: {chapter.apiId}）
-                        </span>
-                      )}
-                      {index === 0 && !chapter.isSubmitted && (
-                        <span className="text-xs bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800/50">
-                          默认章节（未提交）
-                        </span>
-                      )}
-                    </div>
-
-                    {/* 操作按钮组：删除 + 跳转 */}
-                    <div className="flex gap-2">
-                      {/* 跳转按钮：仅当apiId存在（章节已创建成功）时显示 */}
-                      {chapter.apiId && (
-                        <button
-                          type="button"
-                          onClick={() => goToChapter(chapter.apiId)} // 调用跳转方法
-                          className="text-sm bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-3 py-1.5 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
-                        >
-                          进入章节
-                        </button>
-                      )}
-
-                      {/* 【关键修改】删除按钮：添加 enterFrom === 'card' 禁用条件 */}
-                      <button
-                        type="button"
-                        onClick={() => removeChapter(chapter.id)}
-                        disabled={chapters.length <= 1 || chapterDeletingIds[chapter.id] || enterFrom === 'card'}
-                        className={`text-sm text-rose-500 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors ${chapterDeletingIds[chapter.id] ? 'animate-pulse' : ''}`}
-                        aria-label={`删除章节 ${index + 1}`}
-                      >
-                        {chapterDeletingIds[chapter.id] ? (
-                          // 加载中：显示旋转图标
-                          <svg className="w-4.5 h-4.5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
-                          </svg>
-                        ) : (
-                          // 正常状态：显示删除图标
-                          <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
-                          </svg>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* 章节内容输入（保持不变） */}
-                  <div className="space-y-3">
-                    <input
-                      type="text"
-                      value={chapter.name}
-                      onChange={(e) => handleChapterChange(chapter.id, 'name', e.target.value)}
-                      className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-emerald-500 dark:focus:ring-emerald-400 focus:border-emerald-500 dark:focus:border-emerald-400 transition-all duration-200 outline-none"
-                      placeholder="章节名称 *（如：第一章：初入魔法森林）"
-                    />
-
-                    <textarea
-                      value={chapter.opening}
-                      onChange={(e) => handleChapterChange(chapter.id, 'opening', e.target.value)}
-                      className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-emerald-500 dark:focus:ring-emerald-400 focus:border-emerald-500 dark:focus:border-emerald-400 transition-all duration-200 outline-none min-h-[90px] resize-none"
-                      placeholder="章节开篇"
-                    />
-
-                    <textarea
-                      value={chapter.background}
-                      onChange={(e) => handleChapterChange(chapter.id, 'background', e.target.value)}
-                      className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-emerald-500 dark:focus:ring-emerald-400 focus:border-emerald-500 dark:focus:border-emerald-400 transition-all duration-200 outline-none min-h-[90px] resize-none"
-                      placeholder="章节背景"
-                    />
-                  </div>
-                </div>
-              ))}
-
-              {/* 章节操作按钮（保持不变） */}
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={addChapter}
-                  disabled={!hasCreatedChapters}
-                  className="flex-1 py-2.5 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-all duration-200 flex items-center justify-center gap-1.5 text-sm shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
-                  </svg>
-                  + 添加新章节
-                </button>
-
-                <button
-                  onClick={handleCreateChapters}
-                  disabled={chapterLoading}
-                  className="flex-1 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center gap-1.5 text-sm shadow-sm"
-                >
-                  {chapterLoading ? (
-                    <>
-                      <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
-                      </svg>
-                      创建中...
-                    </>
-                  ) : (
-                    <>
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
-                      </svg>
-                      创建章节
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          ) : (
-            // 未创建世界提示（保持不变）
-            <div className="text-center py-10 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-100 dark:border-gray-700 transition-all duration-300">
-              <div className="w-16 h-16 mx-auto mb-4 text-gray-400 dark:text-gray-500">
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
-                </svg>
-              </div>
-              <p className="text-gray-500 dark:text-gray-400 text-lg">请先创建一个世界，然后才能添加章节</p>
-              <button
-                onClick={() => document.querySelector('.bg-indigo-600')?.scrollIntoView({ behavior: 'smooth' })}
-                className="mt-4 px-4 py-2 text-sm text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 transition-colors"
-              >
-                去创建世界 →
-              </button>
-            </div>
-          )}
         </div>
       </div>
     </div>

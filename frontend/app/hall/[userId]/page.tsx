@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { World, UserWorld, WorldCharacter} from '../../types/db';
 import Navbar from '../components/Navbar';
+import { useRouteProtection } from '../../hooks/useRouteProtection';
 import FilterBar from '../components/FilterBar';
 import MyWorldsSidebar from '../components/MyWorldsSidebar';
 import WorldCard from '../components/WorldCard';
@@ -13,63 +14,75 @@ const DEFAULT_WORLD_COVER = '/images/default-world-cover.png';
 
 export default function WorldHall() {
   const Router = useRouter();
+  const params = useParams<{ userId: string }>();
+  const currentUserId = Number(params.userId || '0');
+  
+  // 添加路由保护，要求用户只能访问自己的页面
+  const { isChecking } = useRouteProtection({ requireOwnership: true });
+  
+  // 所有Hooks必须在条件渲染之前调用
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState('热度');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [allWorlds, setAllWorlds] = useState<World[]>([]);
-  const [allCharacters, setAllCharacters] = useState<WorldCharacter[]>([]); // 角色数据
-
   const [myWorlds, setMyWorlds] = useState<World[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hoveredWorldId, setHoveredWorldId] = useState<number | null>(null);
-
-  const params = useParams<{ userId: string }>();
-  const currentUserId = Number(params.userId || '0');
+  // 新增：响应式设计状态
+  const [isMobile, setIsMobile] = useState(false);
+  const [showMyWorlds, setShowMyWorlds] = useState(false);
+  
+  // 检测设备类型（移动端/桌面端）
+  useEffect(() => {
+    const checkMobile = () => {
+      if (typeof window !== 'undefined') {
+        setIsMobile(window.innerWidth < 768);
+      }
+    };
+    
+    checkMobile();
+    if (typeof window !== 'undefined') {
+      window.addEventListener('resize', checkMobile);
+    }
+    
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('resize', checkMobile);
+      }
+    };
+  }, []);
 
   // 1. 获取所有公开世界
   useEffect(() => {
     const fetchAllWorlds = async () => {
+      if (typeof window === 'undefined') return;
+      
       try {
         const res = await fetch('/api/db/worlds');
         if (!res.ok) throw new Error('获取世界列表失败');
         
         const data = await res.json();
-        const worldsWithCovers = data.map((world: World) => ({
+        const worldsWithCovers = (data || []).map((world: World) => ({
           ...world,
-          cover_url: world.cover_url || DEFAULT_WORLD_COVER
+          cover_url: DEFAULT_WORLD_COVER
         }));
         setAllWorlds(worldsWithCovers);
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : '获取世界数据异常';
         setError(errMsg);
         console.error(errMsg, err);
+        setAllWorlds([]);
       }
     };
 
     fetchAllWorlds();
   }, []);
 
-  // 新增：获取所有角色数据（关键修复，确保有角色数据可传递）
-  useEffect(() => {
-    const fetchAllCharacters = async () => {
-      try {
-        const res = await fetch('/api/db/worlds'); // 假设接口返回所有角色
-        
-        const data: WorldCharacter[] = await res.json();
-        setAllCharacters(data);
-        console.log("获取人物数据成功", data)
-      } catch (err) {
-        const errMsg = err instanceof Error ? err.message : '获取角色数据异常';
-        console.error(errMsg, err); // 非致命错误，不阻断页面加载
-      }
-    };
-
-    fetchAllCharacters();
-  }, []);
-
   // 2. 获取当前用户的世界
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
     if (isNaN(currentUserId) || currentUserId === 0) {
       setError('无效的用户ID');
       setLoading(false);
@@ -81,7 +94,7 @@ export default function WorldHall() {
         const res = await fetch(`/api/db/user-worlds?user_id=${currentUserId}&role=creator`);
         if (!res.ok) throw new Error('获取个人世界失败');
         
-        const userWorlds: UserWorld[] = await res.json();
+        const userWorlds: UserWorld[] = await res.json() || [];
         const userOwnedWorlds = allWorlds.filter(world => 
           userWorlds.some(uw => uw.world_id === world.id)
         ).sort((a, b) => 
@@ -93,6 +106,7 @@ export default function WorldHall() {
         const errMsg = err instanceof Error ? err.message : '获取个人世界异常';
         setError(errMsg);
         console.error(errMsg, err);
+        setMyWorlds([]);
       } finally {
         setLoading(false);
       }
@@ -102,7 +116,16 @@ export default function WorldHall() {
       fetchUserWorlds();
     }
   }, [currentUserId, allWorlds]);
-
+  
+  // 认证检查中显示加载状态
+  if (isChecking) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-white p-4">
+        <div className="text-gray-600 text-lg">正在验证您的访问权限...</div>
+      </div>
+    );
+  }
+ 
   // 筛选逻辑
   const filteredWorlds = allWorlds
     .filter(world => {
@@ -122,84 +145,26 @@ export default function WorldHall() {
     });
 
   // 进入创作逻辑（修复角色数据传递）
+  // 修改后的 startCreation 函数中 URL 拼接逻辑
   const startCreation = async (worldId: number, from: 'sidebar' | 'card') => {  
     setError(null);
     setLoading(true);
     
     try {
-      // 1. 调用后端接口，获取目标世界的详情（包含角色）
+      // 1. 仅验证世界是否存在（可选，确保跳转的世界有效）
       const res = await fetch(`/api/db/worlds/${worldId}`);
       if (!res.ok) {
         const errData = await res.json();
         throw new Error(errData.error || '获取世界详情失败');
       }
-      const targetWorld = await res.json();
-      console.log("从后端获取的世界详情：", targetWorld);
 
-
-      // --------------------------
-      // 新增：2. 获取该世界的章节列表（调用指定接口）
-      // --------------------------
-      let targetChapters: any[] = []; // 存储章节数据，类型可根据实际定义（如Chapter[]）
-      const chaptersRes = await fetch(
-        `/api/db/worlds/${worldId}/chapters?creator_user_id=${targetWorld.user_id}` // 必传creator_user_id
-      );
-      if (!chaptersRes.ok) {
-        // 章节获取失败不阻断主流程（可根据业务调整是否抛错）
-        const chaptersErr = await chaptersRes.json().catch(() => ({}));
-        console.warn('获取章节列表失败，将使用空白章节：', chaptersErr.error || '未知错误');
-      } else {
-        targetChapters = await chaptersRes.json();
-        console.log("目标世界ID:", worldId, "后端返回的章节数据:", targetChapters);
-      }
-
-
-      // 3. 提取角色数据（原有逻辑不变）
-      const targetCharacters = targetWorld.main_characters || [];
-      console.log("目标世界ID:", worldId, "后端返回的角色数据:", targetCharacters);
-
-
-      // 4. 构造传递给下一页的数据（新增chapters字段）
-      const worldData = {
-        name: targetWorld.name,
-        tags: targetWorld.tags,
-        is_public: false,
-        worldview: targetWorld.worldview,
-        master_setting: targetWorld.master_setting,
-        origin_world_id: targetWorld.id,
-        popularity: targetWorld.popularity,
-        characters: targetCharacters.map((char: any) => ({ // 原有角色字段
-          name: char.name, 
-          background: char.background 
-        })),
-        chapters: targetChapters.map((chap: any) => ({ // 新增章节字段（保留需要的字段）
-          id: chap.id.toString(), // 下一页ChapterForm的id是string，这里转一下
-          name: chap.name,
-          opening: chap.opening,
-          background: chap.background
-        })),
-        from: from 
-      };
-
-
-      // 5. 拼接URL参数（新增chapters参数）
+      // 2. 只拼接 3 个必要参数，彻底避免 URL 超限
       const queryParams = new URLSearchParams();
-      // 原有参数...
-      queryParams.append('worldName', encodeURIComponent(worldData.name));
-      queryParams.append('tags', JSON.stringify(worldData.tags));
-      queryParams.append('isPublic', worldData.is_public.toString());
-      queryParams.append('worldview', encodeURIComponent(worldData.worldview || ''));
-      queryParams.append('masterSetting', encodeURIComponent(worldData.master_setting || ''));
-      queryParams.append('originWorldId', worldData.origin_world_id.toString());
-      queryParams.append('popularity', worldData.popularity.toString());
-      queryParams.append('characters', encodeURIComponent(JSON.stringify(worldData.characters)));
-      // 新增：传递章节参数（格式与characters一致）
-      queryParams.append('chapters', encodeURIComponent(JSON.stringify(worldData.chapters)));
+      queryParams.append('worldId', worldId.toString()); // 核心：仅传世界 ID
+      queryParams.append('from', from); // 传来源（sidebar/card），用于权限控制
+      queryParams.append('userId', currentUserId.toString()); // 传当前用户 ID（下一页可能需要）
 
-      queryParams.append('from', from); 
-      console.log("已添加from参数到URL：", from); // 验证是否添加成功
-
-      // 6. 跳转（原有逻辑不变）
+      // 3. 跳转 URL（简洁，无超限风险）
       const jumpUrl = `/hall/${currentUserId}/world-chapters?${queryParams.toString()}`;
       Router.push(jumpUrl);
 
@@ -210,7 +175,7 @@ export default function WorldHall() {
     } finally {
       setLoading(false);
     }
-};
+  };
 
   const createWorld = () => {
     setError(null);
@@ -226,6 +191,29 @@ export default function WorldHall() {
       setLoading(false);
     }
   };
+
+  const deleteWorld = async (worldId: number) => {
+    setError(null);
+    setLoading(true);
+     
+    try{
+      const res = await fetch(`/api/db/worlds/${worldId}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || '删除世界失败');
+      }
+      // 前端同步更新列表
+      setAllWorlds(prev => prev.filter(world => world.id !== worldId));
+      setMyWorlds(prev => prev.filter(world => world.id !== worldId));
+    }catch (err) {
+      const errMsg = err instanceof Error ? err.message : '删除世界异常';
+      setError(errMsg);
+      console.error(errMsg, err);
+    }finally {
+      setLoading(false);
+    }
+
+  }
 
   if (loading) {
     return (
@@ -266,118 +254,209 @@ export default function WorldHall() {
     );
   }
 
+  const navigateToNovels = () => {
+    Router.push(`/hall/${currentUserId}/novels`);
+  };
+
   return (
-    <div className="min-h-screen flex flex-col bg-white"> 
+    <div className="min-h-screen flex flex-col bg-white" > 
       <Navbar
         title="幻境协创"
-        searchQuery={searchQuery}
-        setSearchQuery={setSearchQuery}
-        style={{
-            backgroundColor: 'rgba(255, 255, 255, 1)',
-            backdropFilter: 'saturate(200%) blur(10px)',
-            WebkitBackdropFilter: 'saturate(200%) blur(10px)',
-            boxShadow: '0 4px 20px rgba(0, 0, 0, 0.05)',
-            padding: '0.875rem 2rem',
-            position: 'sticky',
-            top: 0,
-            zIndex: 100,
-        }}
         />
+      
+      {/* 移除这个容器 */}
 
       <div className="bg-white py-3 transition-all duration-300 w-full">
+        {/* 使用说明区域 */}
+        <div className="container mx-auto px-4 mb-4">
+          <div className="bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500 p-4 rounded-r-lg flex items-start gap-3">
+            <svg className="w-5 h-5 text-blue-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+            <div>
+              <h3 className="text-sm font-medium text-blue-800 dark:text-blue-300">使用说明</h3>
+              <p className="mt-1 text-sm text-blue-700 dark:text-blue-400">
+                点击「公开世界」中的卡片引用模板进行创作，或点击下方「立即创作」开始全新世界。点击「我的世界」可管理您已创建的世界。
+              </p>
+            </div>
+          </div>
+        </div>
+        
         <FilterBar
-        sortBy={sortBy}
-        setSortBy={setSortBy}
-        tags={tags}
-        selectedTags={selectedTags}
-        setSelectedTags={setSelectedTags}
-        tagStyle={{
-            selected: 'bg-gray-800 text-white hover:bg-gray-700',
-            unselected: 'bg-gray-800 text-white hover:bg-gray-700',
-            padding: '0.375rem 0.75rem',
-            borderRadius: '0.5rem',
-            margin: '0 0.5rem 0.5rem 0'
-        }}
-    />
+          sortBy={sortBy}
+          setSortBy={setSortBy}
+          tags={tags}
+          selectedTags={selectedTags}
+          setSelectedTags={setSelectedTags}
+          searchQuery={searchQuery}
+          setSearchQuery={setSearchQuery}
+        />
+        
+        {/* 移动端：我的世界展开按钮 - 移到搜索标签栏下方 */}
+        {isMobile && (
+          <div className="sticky top-0 z-30 bg-white border-b border-gray-100 shadow-sm mt-2">
+            <button
+                onClick={() => setShowMyWorlds(!showMyWorlds)}
+                className="w-full py-3 px-4 flex items-center justify-between text-left text-gray-800"
+              >
+                <span className="text-xl font-semibold">我的世界</span>
+              <svg 
+                className={`w-5 h-5 transition-transform duration-200 ${showMyWorlds ? 'transform rotate-180' : ''}`}
+                fill="none" 
+                stroke="currentColor" 
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+          </div>
+        )}
     </div>
 
-      <div className="flex flex-1 container mx-auto px-4 py-6 gap-6">
-        <MyWorldsSidebar
-          myWorlds={myWorlds}
-          onSelectWorld={(worldId) => startCreation(worldId, 'sidebar')}
-          style={{
-            width: '280px',
-            backgroundColor: 'white',
-            borderRadius: '12px',
-            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.05)',
-            padding: '1.5rem',
-            flexShrink: 0
-            }}
-        />
-
-        <main className="flex-1">
-          <h2 className="text-xl font-semibold text-gray-800 mb-6">
-            公开世界 {filteredWorlds.length > 0 ? `（共 ${filteredWorlds.length} 个）` : ''}
-          </h2>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredWorlds.length > 0 ? (
-              filteredWorlds.map(world => (
-                <div
-                  key={world.id}
-                  onMouseEnter={() => setHoveredWorldId(world.id)}
-                  onMouseLeave={() => setHoveredWorldId(null)}
-                  style={{
-                    transform: hoveredWorldId === world.id ? 'translateY(-5px)' : 'translateY(0)',
-                    transition: 'transform 0.3s ease, box-shadow 0.3s ease',
-                    boxShadow: hoveredWorldId === world.id ? '0 10px 20px rgba(255, 255, 255, 0.15)' : '0 4px 12px rgba(0, 0, 0, 0.05)',
-                    borderRadius: '12px',
-                    overflow: 'hidden',
-                    backgroundColor: 'white'
-                  }}
+      <div className="flex-1">
+        {/* 电脑端：左侧固定显示我的世界 */}
+        {!isMobile ? (
+          <div className="container mx-auto px-4 py-6 flex gap-6">
+            <div className="w-[350px] bg-white rounded-xl shadow-sm p-6 flex-shrink-0">
+              <MyWorldsSidebar
+                myWorlds={myWorlds}
+                onSelectWorld={(worldId) => startCreation(worldId, 'sidebar')}
+                onDeleteWorld={deleteWorld}
+              />
+            </div>
+            <main className="flex-1">
+              {/* 公开世界内容 */}
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 gap-4">
+                <h2 className="text-xl font-semibold text-gray-800">
+                  公开世界 {filteredWorlds.length > 0 ? `（共 ${filteredWorlds.length} 个）` : ''}
+                </h2>
+                <button
+                  onClick={navigateToNovels}
+                  className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2"
                 >
-                  <WorldCard
-                    world={world}
-                    onClick={() => startCreation(world.id, 'card')}
-                    cardStyle={{
-                      padding: '0',
-                      borderRadius: '12px'
-                    }}
-                    textStyle={{
-                      title: 'font-semibold text-gray-800 text-lg mb-1',
-                      tags: 'text-gray-500 text-sm',
-                      info: 'text-gray-400 text-xs mt-2'
-                    }}
-                  />
-                </div>
-              ))
-            ) : (
-              <div className="col-span-full flex flex-col items-center justify-center py-16 bg-white rounded-xl shadow-sm">
-                <div className="w-20 h-20 mb-4 text-gray-300">
-                  <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                    <path d="M2 17L12 22L22 17" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                    <path d="M2 12L12 17L22 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
                   </svg>
-                </div>
-                <p className="text-gray-500 text-lg">没有找到符合条件的公开世界</p>
+                  小说集
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {filteredWorlds.length > 0 ? (
+                  filteredWorlds.map(world => (
+                    <div
+                      key={world.id}
+                      onMouseEnter={() => setHoveredWorldId(world.id)}
+                      onMouseLeave={() => setHoveredWorldId(null)}
+                      style={{
+                        transform: hoveredWorldId === world.id ? 'translateY(-5px)' : 'translateY(0)',
+                        transition: 'transform 0.3s ease, box-shadow 0.3s ease',
+                        boxShadow: hoveredWorldId === world.id ? '0 10px 20px rgba(255, 255, 255, 0.15)' : '0 4px 12px rgba(0, 0, 0, 0.05)',
+                        borderRadius: '12px',
+                        overflow: 'hidden',
+                        backgroundColor: 'white'
+                      }}
+                    >
+                      <WorldCard
+                        world={world}
+                        onClick={() => startCreation(world.id, 'card')}
+                      />
+                    </div>
+                  ))
+                ) : (
+                  <div className="col-span-full flex flex-col items-center justify-center py-16 bg-white rounded-xl shadow-sm">
+                    <div className="w-20 h-20 mb-4 text-gray-300">
+                      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                        <path d="M2 17L12 22L22 17" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                        <path d="M2 12L12 17L22 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    </div>
+                    <p className="text-gray-500 text-lg">没有找到符合条件的公开世界</p>
+                  </div>
+                )}
+              </div>
+            </main>
+          </div>
+        ) : (
+          <div className="container mx-auto px-4 py-6">
+            {/* 移动端：条件显示我的世界 */}
+            {showMyWorlds && (
+              <div className="bg-white rounded-xl shadow-sm p-4 mb-6">
+                <MyWorldsSidebar
+                  myWorlds={myWorlds}
+                  onSelectWorld={(worldId) => startCreation(worldId, 'sidebar')}
+                  onDeleteWorld={deleteWorld}
+                />
               </div>
             )}
+            <main>
+              {/* 公开世界内容 */}
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 gap-4">
+                <h2 className="text-xl font-semibold text-gray-800">
+                  公开世界 {filteredWorlds.length > 0 ? `（共 ${filteredWorlds.length} 个）` : ''}
+                </h2>
+                <button
+                  onClick={navigateToNovels}
+                  className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
+                  </svg>
+                  小说集
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {filteredWorlds.length > 0 ? (
+                  filteredWorlds.map(world => (
+                    <div
+                      key={world.id}
+                      onMouseEnter={() => setHoveredWorldId(world.id)}
+                      onMouseLeave={() => setHoveredWorldId(null)}
+                      style={{
+                        transform: hoveredWorldId === world.id ? 'translateY(-5px)' : 'translateY(0)',
+                        transition: 'transform 0.3s ease, box-shadow 0.3s ease',
+                        boxShadow: hoveredWorldId === world.id ? '0 10px 20px rgba(255, 255, 255, 0.15)' : '0 4px 12px rgba(0, 0, 0, 0.05)',
+                        borderRadius: '12px',
+                        overflow: 'hidden',
+                        backgroundColor: 'white'
+                      }}
+                    >
+                      <WorldCard
+                        world={world}
+                        onClick={() => startCreation(world.id, 'card')}
+                      />
+                    </div>
+                  ))
+                ) : (
+                  <div className="col-span-full flex flex-col items-center justify-center py-16 bg-white rounded-xl shadow-sm">
+                    <div className="w-20 h-20 mb-4 text-gray-300">
+                      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                        <path d="M2 17L12 22L22 17" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                        <path d="M2 12L12 17L22 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    </div>
+                    <p className="text-gray-500 text-lg">没有找到符合条件的公开世界</p>
+                  </div>
+                )}
+              </div>
+            </main>
           </div>
-        </main>
+        )}
       </div>
 
-        <div className="py-30 px-4">
-            <div className="container mx-auto flex justify-center">
-                <button
-                onClick={createWorld}
-                className="px-10 py-4 rounded-lg border border-gray-800 bg-gray-800 text-white 
-                            hover:bg-gray-700 hover:border-gray-700 transition-all duration-300 
-                            text-lg font-medium shadow-md hover:shadow-lg transform hover:scale-105"
-                >
-                立即创作
-                </button>
-            </div>
+        {/* 立即创作按钮 - 固定在屏幕中下方 */}
+        <div className="fixed bottom-10 left-1/2 transform -translate-x-1/2 z-50">
+            <button
+            onClick={createWorld}
+            className="px-10 py-4 rounded-lg border border-gray-800 bg-gray-800 text-white 
+                        hover:bg-gray-700 hover:border-gray-700 transition-all duration-300 
+                        text-lg font-medium shadow-md hover:shadow-lg transform hover:scale-105"
+            >
+            立即创作
+            </button>
         </div>
     </div>
   );
