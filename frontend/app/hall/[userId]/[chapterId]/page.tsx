@@ -383,17 +383,6 @@ export default function ChapterPage() {
             const canonical = allMsgs.filter((m) => m.id > 0);
             const sortedMessages = sortByIdAsc(canonical);
             setMessages(sortedMessages);
-
-            const messageCount = sortedMessages.length;
-            const targetRound = Math.floor(messageCount / 10) * 10;
-            const shouldTriggerAnalysis = 
-              messageCount >= 10 && 
-              (targetRound > 0 && targetRound !== lastAnalysisCount || 
-               lastAnalysisCount === 0 || 
-               messageCount < lastAnalysisCount);
-            
-            if (shouldTriggerAnalysis) {
-            }
           }
 
           setStreamingMessage('');

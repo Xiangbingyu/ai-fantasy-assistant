@@ -90,10 +90,20 @@ export default function StoryAnalysisComponent({
   };
 
   useEffect(() => {
-    if (messages.length >= 10 && lastAnalysisCount === 0) {
+    const currentRound = Math.floor(messages.length / 10) * 10;
+    const nextRound = currentRound + 10;
+
+    const shouldTriggerAnalysis = 
+      messages.length > 10 && 
+      !analysisLoading &&
+      (lastAnalysisCount === 0 || 
+       (messages.length > currentRound + 1 && messages.length < nextRound && currentRound > lastAnalysisCount) || 
+       messages.length < lastAnalysisCount);
+    
+    if (shouldTriggerAnalysis) {
       setTimeout(() => analyzeCurrentStory(), 1000);
     }
-  }, [messages.length, lastAnalysisCount]);
+  }, [messages.length, lastAnalysisCount, analysisLoading]);
 
   return (
     <section
