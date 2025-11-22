@@ -10,6 +10,7 @@ interface Novel {
   title: string;
   content: string;
   create_time: string;
+  popularity: number;
   chapter_name?: string;
   world_name?: string;
   world_id?: number;
@@ -25,13 +26,15 @@ export default function NovelsPage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedNovel, setSelectedNovel] = useState<Novel | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-
-  // 获取所有小说数据
+    // 排序状态管理
+    const [sortBy, setSortBy] = useState<'create_time' | 'popularity'>('popularity');
   useEffect(() => {
     const fetchNovels = async () => {
       try {
         setLoading(true);
-        const res = await fetch('/api/db/novels');
+        // 根据排序方式构建URL
+        const url = `/api/db/novels?sort_by=${sortBy}`;
+        const res = await fetch(url);
         if (!res.ok) throw new Error('获取小说列表失败');
         
         const data = await res.json();
@@ -46,10 +49,45 @@ export default function NovelsPage() {
     };
 
     fetchNovels();
-  }, []);
+  }, [sortBy]);
+
+  // 增加小说热度
+  const increaseNovelPopularity = async (novelId: number) => {
+    try {
+      // 调用后端API增加热度
+      const res = await fetch(`/api/db/novels/${novelId}/increase-popularity`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (res.ok) {
+        // 更新本地状态中的小说热度
+        setNovels(prevNovels => 
+          prevNovels.map(novel => 
+            novel.id === novelId 
+              ? { ...novel, popularity: (novel.popularity || 0) + 1 }
+              : novel
+          )
+        );
+        
+        // 如果当前查看的小说就是被点击的小说，也更新selectedNovel的热度
+        if (selectedNovel?.id === novelId) {
+          setSelectedNovel(prev => 
+            prev ? { ...prev, popularity: (prev.popularity || 0) + 1 } : null
+          );
+        }
+      }
+    } catch (error) {
+      console.error('增加小说热度失败:', error);
+    }
+  };
 
   // 查看小说详情
   const handleViewNovel = (novel: Novel) => {
+    // 先增加热度，然后再显示详情
+    increaseNovelPopularity(novel.id);
     setSelectedNovel(novel);
   };
 
@@ -113,7 +151,12 @@ export default function NovelsPage() {
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
       <Navbar
-        title="小说集"
+        title={
+          <div className="flex items-center gap-2">
+            <img src="/image/logo.jpg" alt="网站logo" className="h-6 w-auto" />
+            <span>小说集</span>
+          </div>
+        }
       />
       
       <div className="container mx-auto px-4 py-2">
@@ -131,17 +174,33 @@ export default function NovelsPage() {
       <div className="container mx-auto px-4 py-8">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
           <h1 className="text-2xl font-bold text-gray-800">所有小说</h1>
-          <div className="relative w-full md:w-80">
-            <input
-              type="text"
-              placeholder="搜索小说名称、内容或标签..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full px-4 py-2 pl-10 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-            <svg className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
-            </svg>
+          <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+            <div className="relative w-full sm:w-96">
+              <input
+                type="text"
+                placeholder="搜索小说名称、内容或标签"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full px-4 py-2 pl-10 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              <svg className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+              </svg>
+            </div>
+            <div className="flex bg-gray-100 rounded-lg p-1">
+              <button
+                onClick={() => setSortBy('create_time')}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${sortBy === 'create_time' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-600 hover:text-gray-800'}`}
+              >
+                最新发布
+              </button>
+              <button
+                onClick={() => setSortBy('popularity')}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${sortBy === 'popularity' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-600 hover:text-gray-800'}`}
+              >
+                最热排行
+              </button>
+            </div>
           </div>
         </div>
         
@@ -187,10 +246,16 @@ export default function NovelsPage() {
                   </svg>
                 </button>
               </div>
-              <div className="flex items-center gap-4 text-sm text-gray-500">
+              <div className="flex flex-wrap items-center gap-4 text-sm text-gray-500">
                 <span>用户ID: {selectedNovel.user_id}</span>
                 {selectedNovel.world_name && <span>世界: {selectedNovel.world_name}</span>}
                 {selectedNovel.chapter_name && <span>章节: {selectedNovel.chapter_name}</span>}
+                <span className="flex items-center gap-1">
+                  <svg className="w-4 h-4 text-orange-500" fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path>
+                  </svg>
+                  热度: {selectedNovel.popularity || 0}
+                </span>
                 <span>{new Date(selectedNovel.create_time).toLocaleString()}</span>
               </div>
             </div>
@@ -226,7 +291,15 @@ function NovelCard({ novel, onClick }: { novel: Novel, onClick: () => void }) {
         {getPreview(novel.content)}
       </p>
       <div className="flex justify-between items-center text-xs text-gray-500">
-        <span>用户 {novel.user_id}</span>
+        <div className="flex items-center gap-3">
+          <span>用户 {novel.user_id}</span>
+          <span className="flex items-center gap-1">
+            <svg className="w-3 h-3 text-orange-500" fill="currentColor" viewBox="0 0 20 20">
+              <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path>
+            </svg>
+            {novel.popularity || 0}
+          </span>
+        </div>
         <span>{new Date(novel.create_time).toLocaleDateString()}</span>
       </div>
       {(novel.world_name || novel.chapter_name) && (

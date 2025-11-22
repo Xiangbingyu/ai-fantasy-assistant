@@ -3,7 +3,7 @@
 import { useAuth } from '../../hooks/useAuth';
 
 interface NavbarProps {
-    title: string;
+    title: React.ReactNode;
 }
 
 export default function Navbar({ title }: NavbarProps) {

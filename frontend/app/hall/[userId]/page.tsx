@@ -261,7 +261,12 @@ export default function WorldHall() {
   return (
     <div className="min-h-screen flex flex-col bg-white" > 
       <Navbar
-        title="幻境协创"
+        title={
+          <div className="flex items-center gap-2">
+            <img src="/image/logo.jpg" alt="网站logo" className="h-6 w-auto" />
+            <span>幻境协创</span>
+          </div>
+        }
         />
       
       {/* 移除这个容器 */}
