@@ -662,6 +662,22 @@ export default function LoginPage() {
             蜀ICP备2025170897号
           </a>
         </span>
+        <span style={{ margin: '0 8px', color: '#94a3b8' }}>|</span>
+        <span>
+          <img 
+            alt="" 
+            src="/image/foot-ga.png" 
+            style={{ marginRight: '5px', verticalAlign: 'middle', display: 'inline-block' }}
+          />
+          <a 
+            href="http://www.beian.gov.cn/portal/registerSystemInfo?recordcode=51010702043768" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            style={{ color: '#94a3b8', textDecoration: 'none', display: 'inline-block', verticalAlign: 'middle' }}
+          >
+            川公网安备51010702043768号
+          </a>
+        </span>
       </p>
     </div>
   );

@@ -299,6 +299,230 @@ def handle_chat_analyze_stream(data):
     except Exception as e:
         emit('chat_analyze_stream_error', {'error': str(e)})
 
+@socketio.on('world-creator')
+def handle_world_creator(data):
+    """处理世界观创建请求，使用function call方式生成结构化的世界观设定"""
+    try:
+        # 解析参数
+        user_message = data.get("message", "")
+        history = data.get("history", [])
+        user_id = data.get("userId", None)
+        
+        logger.info(f"收到世界观创建请求 - user_id: {user_id}")
+        
+        # 如果没有用户消息，返回错误
+        if not user_message:
+            emit('world_creator_error', {'error': '用户消息不能为空'})
+            return
+        
+        # 定义function call的工具
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "create_world_setting",
+                    "description": "创建详细的世界观设定，包括世界背景、角色信息和初始剧情",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "world_name": {
+                                "type": "string",
+                                "description": "世界的名称"
+                            },
+                            "world_description": {
+                                "type": "string",
+                                "description": "世界观的详细描述，包括地理环境、历史背景、文化特色、社会结构等"
+                            },
+                            "character_name": {
+                                "type": "string",
+                                "description": "AI主要扮演角色的名字，非用户角色"
+                            },
+                            "appearance": {
+                                "type": "string",
+                                "description": "AI主要扮演角色的外貌特征描述"
+                            },
+                            "clothing_style": {
+                                "type": "string",
+                                "description": "AI主要扮演角色的服饰风格描述"
+                            },
+                            "character_background": {
+                                "type": "string",
+                                "description": "AI主要扮演角色的背景故事描述"
+                            },
+                            "personality_traits": {
+                                "type": "string",
+                                "description": "AI主要扮演角色的性格特征描述"
+                            },
+                            "language_style": {
+                                "type": "string",
+                                "description": "AI主要扮演角色的语言风格描述"
+                            },
+                            "behavior_logic": {
+                                "type": "string",
+                                "description": "AI主要扮演角色的行为逻辑描述"
+                            },
+                            "psychological_traits": {
+                                "type": "string",
+                                "description": "AI主要扮演角色的心理特质描述"
+                            },
+                            "chapter_name": {
+                                "type": "string",
+                                "description": "章节的名称"
+                            },
+                            "opening_line": {
+                                "type": "string",
+                                "description": "章节的开场白，需为引导故事情节开始的动态场景描写，包含时间、角色互动、背景回顾、日常细节、情感铺垫和动作描写，让用户能快速代入剧情，自然开启故事"
+                            },
+                            "user_role": {
+                                "type": "string",
+                                "description": "用户在故事中的角色，需包含详细的身份背景、职业/生活状态、人际关系、性格特质、核心矛盾或坚持，内容具体且有画面感，避免简单笼统的描述"
+                            },
+                            "other_character_names": {
+                                "type": "array",
+                                "description": "其余人物的名字列表",
+                                "items": {
+                                    "type": "string",
+                                    "description": "人物名字"
+                                }
+                            },
+                            "other_character_backgrounds": {
+                                "type": "array",
+                                "description": "其余人物的背景故事列表，与名字列表一一对应",
+                                "items": {
+                                    "type": "string",
+                                    "description": "人物背景故事"
+                                }
+                            }
+                        },
+                        "required": ["world_name", "world_description", "character_name", "appearance", 
+                                    "clothing_style", "character_background", "personality_traits", 
+                                    "language_style", "behavior_logic", "psychological_traits", 
+                                    "chapter_name", "opening_line", "user_role", "other_character_names", "other_character_backgrounds"]
+                    }
+                }
+            }
+        ]
+
+        # 构造世界观创建的提示词
+        structured_prompt = f"""[Role]
+你是一位专业的世界观设定师，擅长创建丰富、连贯、有深度的虚构世界。
+
+[Output Requirements]
+1. 请使用提供的create_world_setting工具来生成结构化的世界观设定。
+2. 根据用户的需求，创建详细且有创意的世界观设定。
+3. 确保所有参数都有详细且合理的内容。
+4. 必须在other_character_names和other_character_backgrounds字段中生成至少一个其余人物的信息，两个列表需要一一对应。
+5. 如果有历史对话，请基于之前生成的内容进行细节修改或扩展，保持连贯性。
+6. 严格按照工具定义的参数格式输出，不要有任何额外的解释或说明。
+7. 重点要求：opening_line（开场白）必须为引导故事情节开始的动态场景描写，需包含以下要素：
+   - 明确的时间节点（如清晨、午后、黄昏等）
+   - 角色间的互动或近距离场景（如身边的人、共处的空间）
+   - 简要的背景回顾（如共同经历的时光、当前生活状态的由来）
+   - 生活化的细节描写（如人物的状态、环境的小细节）
+   - 自然的情感铺垫（如对现状的感受、对未来的隐约期待）
+   - 推动剧情开始的动作描写（如准备出门、接到消息、发现异常等）
+   示例风格："今天，你早早的就醒来，莉亚还在你身边呼呼大睡。自从你们离开故乡，出来打拼已经过去了三年，你已经从懵懵懂懂的少年变成了青年，而莉亚也褪去了稚气的青涩。这三年，你们大部分时间都在工会干活，有时候会去打些杂货，有时候会和别人组队讨伐一些哥布林和史莱姆。儿时讨伐魔王的梦想似乎已经在与莉亚的粗茶淡饭的生活中逐渐磨灭了。但这样的生活，你并不讨厌。你摇了摇头，看了看一旁莉亚的睡颜，帮她捋了捋脸上的发丝，随后穿上衣服准备出门锻炼了。"
+   禁止生成静态场景描写（如仅描述人物站在某地、望向远方等无互动、无动作的内容）。
+8. 核心要求：user_role（用户角色）必须详细具体，包含至少3个维度的信息（如身份转变、职业/生活状态、人际关系、性格特质、核心坚持/矛盾、生活细节等），参考以下示例风格：
+   - 示例1："前企业见习生，现辞职做自由撰稿人；私下继续写异种观察笔记，但对克莉丝汀下不了刀。目前与克莉丝汀在旧公寓 4 楼 404 室同居 47 天，两室一厅，门窗已多处被蛛丝加固。"
+   - 示例2："曾是村落里最有天赋的少年战士，如今专注于日常锻炼保持体能；性格内敛寡言但正义感极强，童年时多次保护受欺负的莉亚，对她始终抱着纯粹的兄长式守护之情，从未逾矩。"
+   禁止生成简单笼统的描述（如"亚瑟的忠实伙伴"、"主角的朋友"等缺乏具体信息的内容）。
+"""
+
+        # 构建消息列表
+        messages = [
+            {"role": "system", "content": structured_prompt}
+        ]
+        
+        # 添加历史对话
+        if history:
+            messages.extend(history)
+            
+        # 添加当前用户消息
+        messages.append({"role": "user", "content": user_message})
+
+        # 创建function call响应
+        try:
+            response = client.chat.completions.create(
+                model="glm-4-plus",
+                messages=messages,
+                tools=tools,
+                tool_choice="auto",
+                temperature=0.7,
+                max_tokens=2000
+            )
+            
+            # 获取function call结果
+            function_call_result = response.choices[0].message.tool_calls[0] if response.choices[0].message.tool_calls else None
+            
+            if function_call_result:
+                # 直接返回原始的function call调用信息给前端
+                # 构建原始function call数据结构
+                function_call_data = {
+                    'id': function_call_result.id,
+                    'type': function_call_result.type,
+                    'function': {
+                        'name': function_call_result.function.name,
+                        'arguments': function_call_result.function.arguments
+                    }
+                }
+                emit('world_creator_data', {
+                    'content': function_call_data,
+                    'finished': True
+                })
+                logger.info(f"世界观创建function call成功 - 函数名: {function_call_result.function.name}")
+            else:
+                # 如果没有返回function call，降级处理
+                fallback_messages = [
+                    {"role": "system", "content": "你是一位专业的世界观设定师，请直接回答用户的问题。"},
+                    {"role": "user", "content": user_message}
+                ]
+                
+                fallback_response = client.chat.completions.create(
+                    model="glm-4-plus",
+                    messages=fallback_messages,
+                    temperature=0.7,
+                    max_tokens=1000
+                )
+                
+                content = fallback_response.choices[0].message.content
+                emit('world_creator_data', {
+                    'content': content,
+                    'finished': True
+                })
+            
+            # 发送完成信号
+            emit('world_creator_end', {'finished': True})
+                
+        except Exception as e:
+            logger.error(f"Function call处理异常: {str(e)}")
+            # 降级处理
+            fallback_messages = [
+                {"role": "system", "content": "你是一位专业的世界观设定师，请直接回答用户的问题。"},
+                {"role": "user", "content": user_message}
+            ]
+            
+            try:
+                fallback_response = client.chat.completions.create(
+                    model="glm-4-plus",
+                    messages=fallback_messages,
+                    temperature=0.7,
+                    max_tokens=1000
+                )
+                
+                content = fallback_response.choices[0].message.content
+                emit('world_creator_data', {
+                    'content': content,
+                    'finished': True
+                })
+            except Exception as fallback_error:
+                logger.error(f"降级处理失败: {str(fallback_error)}")
+                emit('world_creator_error', {'error': f'处理失败: {str(fallback_error)}'})
+
+    except Exception as e:
+        logger.error(f"世界观创建处理异常: {str(e)}")
+        emit('world_creator_error', {'error': str(e)})
+
 # WebSocket蓝图初始化函数
 def init_websocket(socketio_app):
     """初始化WebSocket配置"""
