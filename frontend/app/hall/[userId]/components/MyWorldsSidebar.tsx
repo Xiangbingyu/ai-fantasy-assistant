@@ -22,7 +22,7 @@ export default function MyWorldsSidebar({ myWorlds, onSelectWorld, onDeleteWorld
                     <h2 className="text-lg font-semibold">我的世界</h2>
                 </div>
 
-                <div className="max-h-[calc(100vh-220px)] overflow-y-auto">
+                <div className="max-h-[calc(100vh-0px)] overflow-y-auto">
                     {myWorlds.length > 0 ? (
                         <ul>
                             {myWorlds.map(world => (

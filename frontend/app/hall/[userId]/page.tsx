@@ -32,6 +32,10 @@ export default function WorldHall() {
   // 新增：响应式设计状态
   const [isMobile, setIsMobile] = useState(false);
   const [showMyWorlds, setShowMyWorlds] = useState(false);
+  // 新增：分页状态管理
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize] = useState(18); // 每页显示18个世界面板
+  const [totalPages, setTotalPages] = useState(1);
   
   // 检测设备类型（移动端/桌面端）
   useEffect(() => {
@@ -117,17 +121,14 @@ export default function WorldHall() {
     }
   }, [currentUserId, allWorlds]);
   
-  // 认证检查中显示加载状态
-  if (isChecking) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-white p-4">
-        <div className="text-gray-600 text-lg">正在验证您的访问权限...</div>
-      </div>
-    );
-  }
- 
+  // 计算总页数和重置页面的Hooks必须放在条件渲染之前
+  // 当搜索条件或排序方式改变时，重置到第一页
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, selectedTags, sortBy]);
+
   // 筛选逻辑
-  const filteredWorlds = allWorlds
+  const filteredAndSortedWorlds = allWorlds
     .filter(world => {
       if (!world.is_public) return false;
       if (selectedTags.length > 0 && !selectedTags.some(tag => world.tags.includes(tag))) return false;
@@ -143,6 +144,28 @@ export default function WorldHall() {
       if (sortBy === '更新时间') return new Date(b.create_time).getTime() - new Date(a.create_time).getTime();
       return 0;
     });
+
+  // 计算总页数
+  useEffect(() => {
+    const total = Math.ceil(filteredAndSortedWorlds.length / pageSize);
+    setTotalPages(total > 0 ? total : 1);
+    // 注意：当前页面的重置已经由上面的useEffect处理
+  }, [filteredAndSortedWorlds, pageSize]);
+
+  // 分页处理
+  const filteredWorlds = filteredAndSortedWorlds.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  );
+
+  // 认证检查中显示加载状态
+  if (isChecking) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-white p-4">
+        <div className="text-gray-600 text-lg">正在验证您的访问权限...</div>
+      </div>
+    );
+  }
 
   // 进入创作逻辑（修复角色数据传递）
   // 修改后的 startCreation 函数中 URL 拼接逻辑
@@ -333,7 +356,7 @@ export default function WorldHall() {
               {/* 公开世界内容 */}
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 gap-4">
                 <h2 className="text-xl font-semibold text-gray-800">
-                  公开世界 {filteredWorlds.length > 0 ? `（共 ${filteredWorlds.length} 个）` : ''}
+                  公开世界
                 </h2>
                 <button
                   onClick={navigateToNovels}
@@ -381,6 +404,42 @@ export default function WorldHall() {
                   </div>
                 )}
               </div>
+              
+              {/* 分页组件 - 移动端和桌面端共用 */}
+              {totalPages > 1 && (
+                <div className="mt-10 flex justify-center items-center">
+                  <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
+                    {/* 上一页按钮 */}
+                    <button
+                      onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                      disabled={currentPage === 1}
+                      className={`relative inline-flex items-center px-2 py-2 rounded-l-md border ${currentPage === 1 ? 'text-gray-300 bg-gray-50 cursor-not-allowed' : 'text-gray-500 bg-white hover:bg-gray-50'}`}
+                    >
+                      <span className="sr-only">上一页</span>
+                      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                      </svg>
+                    </button>
+                    
+                    {/* 页码按钮 - 简化显示，只显示当前页和总页数信息 */}
+                    <span className="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-700">
+                      {currentPage} / {totalPages}
+                    </span>
+                    
+                    {/* 下一页按钮 */}
+                    <button
+                      onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                      disabled={currentPage === totalPages}
+                      className={`relative inline-flex items-center px-2 py-2 rounded-r-md border ${currentPage === totalPages ? 'text-gray-300 bg-gray-50 cursor-not-allowed' : 'text-gray-500 bg-white hover:bg-gray-50'}`}
+                    >
+                      <span className="sr-only">下一页</span>
+                      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                    </button>
+                  </nav>
+                </div>
+              )}
             </main>
           </div>
         ) : (
@@ -399,7 +458,7 @@ export default function WorldHall() {
               {/* 公开世界内容 */}
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 gap-4">
                 <h2 className="text-xl font-semibold text-gray-800">
-                  公开世界 {filteredWorlds.length > 0 ? `（共 ${filteredWorlds.length} 个）` : ''}
+                  公开世界
                 </h2>
                 <button
                   onClick={navigateToNovels}
