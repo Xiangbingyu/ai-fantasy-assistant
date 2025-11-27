@@ -35,10 +35,7 @@ const WorldCreator: React.FC = () => {
   // 建立WebSocket连接
   useEffect(() => {
     // 创建Socket.IO实例连接到后端服务器
-    const newSocket = io('http://localhost:4000', {
-      transports: ['websocket'],
-      reconnection: true,
-    });
+    const newSocket = io('http://120.48.16.108:4000');
 
     // 监听连接事件
     newSocket.on('connect', () => {
@@ -305,7 +302,7 @@ const WorldCreator: React.FC = () => {
           <textarea
             value={message}
             onChange={(e) => setMessage(e.target.value)}
-            placeholder="请输入您对世界观的修改要求..."
+            placeholder="请输入您对世界观的修改要求，如：帮我生成一个剑与魔法的世界..."
             className={`w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-emerald-500 dark:focus:ring-emerald-400 focus:border-emerald-500 dark:focus:border-emerald-400 transition-all duration-200 outline-none min-h-[90px] resize-none ${loading || !connected ? 'opacity-60 cursor-not-allowed' : ''}`}
             disabled={loading || !connected}
           />

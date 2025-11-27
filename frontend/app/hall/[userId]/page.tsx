@@ -2,11 +2,11 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { World, UserWorld, WorldCharacter} from '../../types/db';
-import Navbar from '../components/Navbar';
+import Navbar from './components/Navbar';
 import { useRouteProtection } from '../../hooks/useRouteProtection';
-import FilterBar from '../components/FilterBar';
-import MyWorldsSidebar from '../components/MyWorldsSidebar';
-import WorldCard from '../components/WorldCard';
+import FilterBar from './components/FilterBar';
+import MyWorldsSidebar from './components/MyWorldsSidebar';
+import WorldCard from './components/WorldCard';
 import { useRouter } from 'next/navigation';
 
 const tags = ['魔法', '末世', '科幻', '古风', '校园', '武侠', '异能', '历史', '太空'];

@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import Navbar from '../../components/Navbar';
+import Navbar from '../components/Navbar';
 
 interface Novel {
   id: number;
