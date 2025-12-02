@@ -17,6 +17,9 @@ export default function SuggestionsComponent({
   onEditTextChange,
   onSuggestionClick,
 }: SuggestionsComponentProps) {
+  // 确保suggestions是数组格式，增强健壮性
+  const safeSuggestions = Array.isArray(suggestions) ? suggestions : [];
+  
   return (
     <aside
       style={{
@@ -37,16 +40,19 @@ export default function SuggestionsComponent({
         <div style={{ color: '#6b7280' }}>生成建议中...</div>
       ) : suggestionsError ? (
         <div style={{ color: '#ef4444' }}>{suggestionsError}</div>
-      ) : suggestions.length === 0 ? (
+      ) : safeSuggestions.length === 0 ? (
         <div style={{ color: '#6b7280' }}>暂无建议</div>
       ) : (
-        suggestions.map((s, idx) => (
+        safeSuggestions.map((s, idx) => (
           <button
             key={idx}
             type="button"
             onClick={() => {
-              onEditTextChange(s.content);
-              onSuggestionClick?.();
+              // 确保s和s.content存在且为字符串
+              if (s && typeof s.content === 'string') {
+                onEditTextChange(s.content);
+                onSuggestionClick?.();
+              }
             }}
             style={{
               textAlign: 'left',
@@ -59,7 +65,7 @@ export default function SuggestionsComponent({
             }}
             title="点击将建议填入输入气泡"
           >
-            {s.content}
+            {s && typeof s.content === 'string' ? s.content : ''}
           </button>
         ))
       )}

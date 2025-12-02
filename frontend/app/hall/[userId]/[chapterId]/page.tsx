@@ -259,11 +259,42 @@ export default function ChapterPage() {
         );
       }
 
-      if (Array.isArray(data?.suggestions)) {
+      // 处理新的function call格式返回数据
+      // 从function调用参数中提取suggestions数据
+      if (data && data.type === 'function' && 
+          data.function && 
+          data.function.name === 'generate_reply_suggestions' && 
+          data.function.arguments) {
+        try {
+          // 确保arguments是字符串时进行解析
+          const argumentsData = typeof data.function.arguments === 'string' 
+            ? JSON.parse(data.function.arguments)
+            : data.function.arguments;
+          
+          // 处理suggestion_1到suggestion_6字段的情况
+          const suggestions = [];
+          for (let i = 1; i <= 6; i++) {
+            const key = `suggestion_${i}`;
+            if (argumentsData[key] && typeof argumentsData[key] === 'string') {
+              suggestions.push({ content: argumentsData[key] });
+            }
+          }
+          setSuggestions(suggestions.length > 0 ? suggestions : []);
+        } catch (e) {
+          console.error('解析function call参数失败:', e);
+          setSuggestions([]);
+        }
+      }
+      // 兼容原有格式
+      else if (Array.isArray(data?.suggestions)) {
         setSuggestions(data.suggestions as Array<{ content: string }>);
-      } else if (typeof data?.raw === 'string') {
+      } 
+      // 处理降级情况
+      else if (typeof data?.raw === 'string') {
         setSuggestions([{ content: data.raw }]);
-      } else {
+      } 
+      // 默认情况
+      else {
         setSuggestions([]);
       }
     } catch (e) {
