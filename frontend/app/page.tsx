@@ -374,7 +374,7 @@ export default function LoginPage() {
                 </linearGradient>
               </defs>
             </svg>
-            幻境协创
+            文字小筑
           </h1>
           <p style={{
             fontSize: isMobile ? '13px' : '14px',

@@ -6,7 +6,7 @@ import { AuthProvider } from "./hooks/useAuth";
 
 // 根布局文件默认是服务器组件，可以导出metadata
 export const metadata: Metadata = {
-  title: "AI Fantasy Assistant",
+  title: "文字小筑",
   description: "AI驱动的奇幻助手应用",
   icons: {
     icon: "/image/logo.jpg",

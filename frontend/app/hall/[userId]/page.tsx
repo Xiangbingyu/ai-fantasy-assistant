@@ -287,7 +287,7 @@ export default function WorldHall() {
         title={
           <div className="flex items-center gap-2">
             <img src="/image/logo.jpg" alt="网站logo" className="h-6 w-auto" />
-            <span>幻境协创</span>
+            <span>文字小筑</span>
           </div>
         }
         />

@@ -713,7 +713,7 @@ export default function WorldChaptersPage() {
                 </linearGradient>
               </defs>
             </svg>
-            幻境协创
+            文字小筑
           </h1>
           <p style={{
             fontSize: '12px',
