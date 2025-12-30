@@ -33,11 +33,33 @@ def generate_novel_async(task_id, data, socketio_instance):
             'progress': '开始生成小说...'
         })
         
-        # 构造结构化提示词
+        # 获取必要参数
+        history_chapter_id = data.get("history_chapter_id")
         worldview = data.get("worldview")
         master_sitting = data.get("master_sitting")
         main_characters = data.get("main_characters")
         background = data.get("background")
+        dialogue_content = data.get("prompt")
+        
+        # 判断是否为创作新章节
+        has_history = history_chapter_id is not None and history_chapter_id != ""
+        
+        if has_history:
+            # 更新进度
+            novel_tasks[task_id]["progress"] = "检测到历史章节，正在分析上下文..."
+            socketio_instance.emit('novel_task_update', {
+                'task_id': task_id,
+                'status': 'processing',
+                'progress': '检测到历史章节，正在分析上下文...'
+            })
+        else:
+            # 更新进度
+            novel_tasks[task_id]["progress"] = "开始创作独立章节..."
+            socketio_instance.emit('novel_task_update', {
+                'task_id': task_id,
+                'status': 'processing',
+                'progress': '开始创作独立章节...'
+            })
 
         # 统一组装主要角色信息
         if isinstance(main_characters, (list, tuple)):
@@ -47,60 +69,28 @@ def generate_novel_async(task_id, data, socketio_instance):
         else:
             mc_text = str(main_characters) if main_characters is not None else ""
 
-        structured_prompt = f"""[Role]
-你是一位资深小说家，擅长将对话内容扩展为精彩的小说故事，且输出内容需严格遵循 Markdown 格式规范。
-你的创作重点应该是**忠实还原并扩展用户提供的对话内容**，将其转化为连贯、生动的小说叙述。
-
-[创作指南]
-1. **核心素材**：用户提供的对话内容是创作的核心和基础，必须完整保留其情节发展人物互动。
-2. **辅助素材**：世界观、人物设定等信息仅作为辅助参考，用于确保风格一致，不应喧宾夺主。
-3. **创作方式**：将对话自然地融入故事叙述中，适当补充场景描写和人物心理，使对话更具画面感。
-
-[Context References]
-# 世界观（仅供风格参考）
-{worldview or "无特殊设定"}
-
-# 核心人物设定
-{master_sitting or "无特定人物关系"}
-
-# 其余角色（必要时可出现）
-{mc_text if main_characters else "无其他角色"}
-
-# 玩家背景
-{background or "无特定场景"}
-
-[Output Requirements]
-1. 标题格式：第一段必须是章节标题，使用 Markdown 一级标题（# 标题内容），简洁有力，直接点明故事核心。
-2. 主体内容必须**紧密围绕用户提供的对话内容**展开创作。
-3. 风格要求：语言风格与世界观一致，自然流畅，避免冗余；仅输出小说内容，无任何额外引导语（如「故事开始了」）或说明文字。
-4. 详略得当：对话相关内容应详细展开，场景、心理、动作等描写需与对话融合，设定相关但与对话无关的内容可简要带过。
-5. 格式规范：全程遵循 Markdown 语法，无杂乱排版，标题、段落、对话层级清晰，可直接复制使用。
-"""
-
-        messages = [
-            {"role": "system", "content": structured_prompt},
-            {"role": "user", "content": f"请基于以下对话内容创作小说：\n{data['prompt']}"}
-        ]
-        
-        # 更新进度
-        novel_tasks[task_id]["progress"] = "正在调用 AI 模型生成内容..."
+        # 更新进度：开始调用工作流
+        novel_tasks[task_id]["progress"] = "正在启动 CrewAI 工作流..."
         socketio_instance.emit('novel_task_update', {
             'task_id': task_id,
             'status': 'processing',
-            'progress': '正在调用 AI 模型生成内容...'
+            'progress': '正在启动 CrewAI 工作流...'
         })
 
-        response = client.chat.completions.create(
-            model="glm-4.6",
-            messages=messages,
-            thinking={"type": "enabled"},
-            temperature=0.7
-        )
-
-        result = response.choices[0].message.content
+        # 调用 CrewAI 工作流生成小说
+        from app.crew.novel_crew import generate_novel_with_crew
         
-        print(f"任务 {task_id} 大模型原始响应：", response)
-        print(f"任务 {task_id} AI回复内容：", result)
+        result = generate_novel_with_crew(
+            worldview=worldview,
+            master_sitting=master_sitting,
+            main_characters=main_characters,
+            background=background,
+            mc_text=mc_text,
+            dialogue_content=dialogue_content,
+            history_chapter_id=history_chapter_id
+        )
+        
+        print(f"任务 {task_id} CrewAI 工作流生成结果：", result)
         
         # 更新任务状态为完成
         novel_tasks[task_id].update({
