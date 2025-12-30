@@ -5,6 +5,7 @@
 
 from crewai import Agent, Task, Crew, Process
 from typing import Dict, Optional
+from app.models import NovelRecord
 
 
 class NovelCrew:
@@ -60,8 +61,17 @@ def generate_novel_with_crew(
         生成的小说内容
     """
     from app.config import Config
+    from app import create_app
 
     has_history = history_chapter_id is not None and history_chapter_id != ""
+
+    history_chapters = ""
+    if has_history:
+        app = create_app()
+        with app.app_context():
+            novel_record = NovelRecord.query.get(history_chapter_id)
+            if novel_record:
+                history_chapters = novel_record.content
 
     data = {
         "worldview": worldview,
@@ -69,7 +79,8 @@ def generate_novel_with_crew(
         "main_characters": main_characters,
         "background": background,
         "mc_text": mc_text,
-        "prompt": dialogue_content
+        "prompt": dialogue_content,
+        "history_chapters": history_chapters
     }
 
     crew = NovelCrew(zhipu_api_key=Config.ZHIPU_API_KEY)
