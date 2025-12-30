@@ -22,10 +22,10 @@ class NovelCrew:
         """
         self.zhipu_api_key = zhipu_api_key
         
-        # 定义大模型
         self.llm = LLM(
-            model="glm-4.6",
-            base_url="https://open.bigmodel.cn/api/paas/v4/chat/completions",
+            model="glm-4-plus",
+            base_url="https://open.bigmodel.cn/api/paas/v4",
+            temperature=0.7,
             api_key=zhipu_api_key
         )
         
@@ -117,22 +117,26 @@ class NovelCrew:
         
         # 剧情规划任务
         planning_config = self.tasks_config['story_planning']
-        description = planning_config['description'].format(
-            prompt=data.get('prompt', '')
-        )
+        # CrewAI 会自动将前置任务的输出作为上下文，不需要手动添加 {context}
+        description = planning_config['description'].replace('{prompt}', data.get('prompt', ''))
+        
+        context_tasks = [dialogue_task]
+        if historical_task:
+            context_tasks.insert(0, historical_task)
+        
         planning_task = Task(
             description=description,
             agent=agents['story_planner'],
             expected_output=planning_config['expected_output'],
-            context=[historical_task, dialogue_task] if historical_task else [dialogue_task]  # 依赖历史上下文分析和对话分析的结果
+            context=context_tasks  # 依赖历史上下文分析和对话分析的结果
         )
         tasks.append(planning_task)
         
         # 写作任务
         writing_config = self.tasks_config['writing']
-        description = writing_config['description'].format(
-            prompt=data.get('prompt', '')
-        )
+        # CrewAI 会自动将前置任务的输出作为上下文，不需要手动添加 {context}
+        description = writing_config['description'].replace('{prompt}', data.get('prompt', ''))
+        
         writing_task = Task(
             description=description,
             agent=agents['writer'],
@@ -143,8 +147,11 @@ class NovelCrew:
         
         # 修饰润色任务
         polishing_config = self.tasks_config['polishing']
+        # CrewAI 会自动将前置任务的输出作为上下文，不需要手动添加 {context}
+        description = polishing_config['description']
+        
         polishing_task = Task(
-            description=polishing_config['description'],
+            description=description,
             agent=agents['polisher'],
             expected_output=polishing_config['expected_output'],
             context=[writing_task]  # 依赖写作的结果
@@ -175,7 +182,8 @@ class NovelCrew:
             agents=list(agents.values()),
             tasks=tasks,
             process=Process.sequential,  # 顺序执行
-            verbose=True
+            verbose=True,
+            max_rpm=60  # 限制每分钟请求数，防止API限流
         )
         
         # 执行工作流
@@ -235,6 +243,13 @@ def generate_novel_with_crew(
     result = crew.generate_novel(data, has_history)
     
     return result
+
+
+
+
+
+
+
 
 
 
