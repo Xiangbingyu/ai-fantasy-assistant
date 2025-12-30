@@ -3,9 +3,11 @@
 使用 CrewAI 框架构建多智能体协作的小说生成系统
 """
 
-from crewai import Agent, Task, Crew, Process
-from typing import Dict, Optional
+from crewai import Agent, Task, Crew, Process, LLM
+from typing import Dict, Optional, List
 from app.models import NovelRecord
+import yaml
+import os
 
 
 class NovelCrew:
@@ -20,9 +22,140 @@ class NovelCrew:
         """
         self.zhipu_api_key = zhipu_api_key
         
+        # 定义大模型
+        self.llm = LLM(
+            model="glm-4.6",
+            base_url="https://open.bigmodel.cn/api/paas/v4/chat/completions",
+            api_key=zhipu_api_key
+        )
+        
+        # 加载智能体和任务配置
+        self.agents_config = self._load_yaml('agents.yaml')
+        self.tasks_config = self._load_yaml('tasks.yaml')
+        
+    def _load_yaml(self, filename: str) -> Dict:
+        """
+        加载 YAML 配置文件
+        
+        Args:
+            filename: YAML 文件名
+        
+        Returns:
+            配置字典
+        """
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        config_path = os.path.join(current_dir, 'prompts', filename)
+        
+        with open(config_path, 'r', encoding='utf-8') as f:
+            return yaml.safe_load(f)
+    
+    def create_agents(self) -> Dict[str, Agent]:
+        """
+        创建所有智能体
+        
+        Returns:
+            智能体字典
+        """
+        agents = {}
+        
+        for agent_name, agent_config in self.agents_config.items():
+            agent = Agent(
+                role=agent_config['role'],
+                goal=agent_config['goal'],
+                backstory=agent_config['backstory'],
+                verbose=agent_config.get('verbose', True),
+                allow_delegation=agent_config.get('allow_delegation', False),
+                llm=self.llm
+            )
+            agents[agent_name] = agent
+        
+        return agents
+    
+    def create_tasks(self, agents: Dict[str, Agent], data: Dict, has_history: bool = False) -> List[Task]:
+        """
+        创建任务列表
+        
+        Args:
+            agents: 智能体字典
+            data: 输入数据，包含对话内容、世界观、人物设定等
+            has_history: 是否有历史章节
+        
+        Returns:
+            任务列表
+        """
+        tasks = []
+        
+        # 如果有历史章节，添加历史上下文分析任务
+        historical_task = None
+        if has_history:
+            historical_config = self.tasks_config['historical_context_analysis']
+            description = historical_config['description'].format(
+                history_chapters=data.get('history_chapters', '')
+            )
+            historical_task = Task(
+                description=description,
+                agent=agents['historical_context_analyst'],
+                expected_output=historical_config['expected_output']
+            )
+            tasks.append(historical_task)
+        
+        # 对话分析任务
+        dialogue_config = self.tasks_config['dialogue_analysis']
+        description = dialogue_config['description'].format(
+            prompt=data.get('prompt', ''),
+            worldview=data.get('worldview', ''),
+            master_sitting=data.get('master_sitting', ''),
+            main_characters=data.get('main_characters', ''),
+            background=data.get('background', '')
+        )
+        dialogue_task = Task(
+            description=description,
+            agent=agents['dialogue_analyst'],
+            expected_output=dialogue_config['expected_output']
+        )
+        tasks.append(dialogue_task)
+        
+        # 剧情规划任务
+        planning_config = self.tasks_config['story_planning']
+        description = planning_config['description'].format(
+            prompt=data.get('prompt', '')
+        )
+        planning_task = Task(
+            description=description,
+            agent=agents['story_planner'],
+            expected_output=planning_config['expected_output'],
+            context=[historical_task, dialogue_task] if historical_task else [dialogue_task]  # 依赖历史上下文分析和对话分析的结果
+        )
+        tasks.append(planning_task)
+        
+        # 写作任务
+        writing_config = self.tasks_config['writing']
+        description = writing_config['description'].format(
+            prompt=data.get('prompt', '')
+        )
+        writing_task = Task(
+            description=description,
+            agent=agents['writer'],
+            expected_output=writing_config['expected_output'],
+            context=[planning_task]  # 依赖剧情规划的结果
+        )
+        tasks.append(writing_task)
+        
+        # 修饰润色任务
+        polishing_config = self.tasks_config['polishing']
+        polishing_task = Task(
+            description=polishing_config['description'],
+            agent=agents['polisher'],
+            expected_output=polishing_config['expected_output'],
+            context=[writing_task]  # 依赖写作的结果
+        )
+        tasks.append(polishing_task)
+        
+        return tasks
+    
     def generate_novel(self, data: Dict, has_history: bool = False) -> str:
         """
-        生成小说章节（象征性实现，后续会重构）
+        生成小说章节
         
         Args:
             data: 输入数据
@@ -31,10 +164,24 @@ class NovelCrew:
         Returns:
             生成的小说内容
         """
-        # TODO: 后续重构时实现完整的工作流
-        # 这里暂时返回占位符
-        return "小说生成工作流（待重构）"
-
+        # 创建智能体
+        agents = self.create_agents()
+        
+        # 创建任务
+        tasks = self.create_tasks(agents, data, has_history)
+        
+        # 创建工作流
+        crew = Crew(
+            agents=list(agents.values()),
+            tasks=tasks,
+            process=Process.sequential,  # 顺序执行
+            verbose=True
+        )
+        
+        # 执行工作流
+        result = crew.kickoff()
+        
+        return str(result)
 
 def generate_novel_with_crew(
     worldview: str,
@@ -88,3 +235,6 @@ def generate_novel_with_crew(
     result = crew.generate_novel(data, has_history)
     
     return result
+
+
+

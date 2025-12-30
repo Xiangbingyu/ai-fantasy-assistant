@@ -1,0 +1,108 @@
+# 任务配置文件
+# 定义小说生成工作流中的各个任务
+# 任务之间的依赖关系通过 context 参数控制
+
+# 历史上下文分析任务（仅在有历史章节时执行）
+historical_context_analysis:
+  description: |
+    分析以下历史章节内容，提取关键信息：
+    
+    历史章节：{history_chapters}
+    
+    请提取：
+    1. 历史章节核心情节概要（200字）
+    2. 主要角色当前状态（性格、情绪、关系）
+    3. 未解决的伏笔和悬念（2-3个）
+    4. 世界观已确立的规则和设定
+    5. 本章节需要承接的关键要素
+    6. 风格基调参考（语言风格、叙事节奏）
+  expected_output: 历史上下文摘要
+  agent: historical_context_analyst
+  # 输入参数：history_chapters
+  # 无前置任务
+
+# 对话分析任务
+dialogue_analysis:
+  description: |
+    分析以下对话内容，结合上下文信息：
+    
+    对话内容：{prompt}
+    世界观：{worldview}
+    核心人物设定：{master_sitting}
+    其余角色：{main_characters}
+    玩家背景：{background}
+    
+    请分析：
+    1. 对话的核心情节要点
+    2. 与历史章节的关联点（如果有）
+    3. 对话中涉及的角色行为是否符合设定
+    4. 需要特别注意的世界观要素
+    5. 对话的情感基调
+    6. 建议的叙事重点
+  expected_output: 对话分析报告
+  agent: dialogue_analyst
+  # 输入参数：prompt、worldview、master_sitting、main_characters、background
+  # 无前置任务
+
+# 剧情规划任务
+story_planning:
+  description: |
+    根据历史上下文分析和对话分析的结果，规划本章节的叙事方式：
+    
+    {context}
+    
+    对话内容：{prompt}
+    
+    请提供：
+    1. 章节标题建议
+    2. 叙事视角和节奏
+    3. 情节发展大纲（3-5个关键节点）
+    4. 如何承接历史悬念（如果有）
+    5. 如何处理角色发展
+    6. 场景转换方案
+    7. 对话融入方式
+  expected_output: 剧情规划方案
+  agent: story_planner
+  # 输入参数：历史上下文分析结果、对话分析结果、prompt
+  # 前置任务：historical_context_analysis（如果有）、dialogue_analysis
+
+# 写作任务
+writing:
+  description: |
+    根据剧情规划创作章节内容：
+    
+    {context}
+    
+    对话内容：{prompt}
+    
+    要求：
+    1. 第一段必须是章节标题，使用 Markdown 一级标题（# 标题内容）
+    2. 主体内容必须紧密围绕对话内容展开创作
+    3. 语言风格与世界观一致，自然流畅
+    4. 仅输出小说内容，无任何额外引导语
+    5. 详略得当，对话相关内容详细展开
+    6. 全程遵循 Markdown 语法
+  expected_output: 章节草稿
+  agent: writer
+  # 输入参数：剧情规划结果、prompt
+  # 前置任务：story_planning
+
+# 修饰润色任务
+polishing:
+  description: |
+    润色章节内容，确保最终质量：
+    
+    {context}
+    
+    处理内容：
+    1. 检查与历史章节的风格一致性（如果有）
+    2. 优化章节间的衔接（如果有）
+    3. 删除冗余内容
+    4. 修复逻辑不流畅的地方
+    5. 添加必要的修饰描写
+    6. 确保 Markdown 格式规范
+    7. 最终质量把控
+  expected_output: 最终章节
+  agent: polisher
+  # 输入参数：写作结果
+  # 前置任务：writing
