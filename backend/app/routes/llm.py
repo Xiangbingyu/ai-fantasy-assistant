@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app, copy_current_request_context
 from zai import ZhipuAiClient
 from app.config import Config
 import json
@@ -14,9 +14,23 @@ client = ZhipuAiClient(api_key=Config.ZHIPU_API_KEY)
 # 全局任务存储，用于跟踪异步任务状态
 novel_tasks = {}
 
-def generate_novel_async(task_id, data, socketio_instance):
+def generate_novel_async(task_id, data):
     """异步生成小说的后台任务"""
     try:
+        from app.models import db, NovelRecord
+        from datetime import datetime
+        
+        # 获取必要参数
+        history_chapter_id = data.get("history_chapter_id")
+        worldview = data.get("worldview")
+        master_sitting = data.get("master_sitting")
+        main_characters = data.get("main_characters")
+        background = data.get("background")
+        dialogue_content = data.get("prompt")
+        chapter_id = data.get("chapter_id")
+        user_id = data.get("user_id")
+        title = data.get("title")
+
         # 更新任务状态为处理中
         novel_tasks[task_id] = {
             "status": "processing",
@@ -25,43 +39,14 @@ def generate_novel_async(task_id, data, socketio_instance):
             "result": None,
             "error": None
         }
-        
-        # 通过 WebSocket 通知任务开始
-        socketio_instance.emit('novel_task_update', {
-            'task_id': task_id,
-            'status': 'processing',
-            'progress': '开始生成小说...'
-        })
-        
-        # 获取必要参数
-        history_chapter_id = data.get("history_chapter_id")
-        chapter_id = data.get("chapter_id")
-        user_id = data.get("user_id")
-        worldview = data.get("worldview")
-        master_sitting = data.get("master_sitting")
-        main_characters = data.get("main_characters")
-        background = data.get("background")
-        dialogue_content = data.get("prompt")
-        
+
         # 判断是否为创作新章节
         has_history = history_chapter_id is not None and history_chapter_id != ""
         
         if has_history:
-            # 更新进度
             novel_tasks[task_id]["progress"] = "检测到历史章节，正在分析上下文..."
-            socketio_instance.emit('novel_task_update', {
-                'task_id': task_id,
-                'status': 'processing',
-                'progress': '检测到历史章节，正在分析上下文...'
-            })
         else:
-            # 更新进度
             novel_tasks[task_id]["progress"] = "开始创作独立章节..."
-            socketio_instance.emit('novel_task_update', {
-                'task_id': task_id,
-                'status': 'processing',
-                'progress': '开始创作独立章节...'
-            })
 
         # 统一组装主要角色信息
         if isinstance(main_characters, (list, tuple)):
@@ -73,21 +58,9 @@ def generate_novel_async(task_id, data, socketio_instance):
 
         # 更新进度：开始调用工作流
         novel_tasks[task_id]["progress"] = "正在启动 CrewAI 工作流..."
-        socketio_instance.emit('novel_task_update', {
-            'task_id': task_id,
-            'status': 'processing',
-            'progress': '正在启动 CrewAI 工作流...'
-        })
 
         # 调用 CrewAI 工作流生成小说
         from app.crew.novel_crew import generate_novel_with_crew
-        
-        novel_tasks[task_id]["progress"] = "正在生成小说内容（可能需要较长时间，请耐心等待）..."
-        socketio_instance.emit('novel_task_update', {
-            'task_id': task_id,
-            'status': 'processing',
-            'progress': '正在生成小说内容（可能需要较长时间，请耐心等待）...'
-        })
         
         result = generate_novel_with_crew(
             worldview=worldview,
@@ -96,19 +69,10 @@ def generate_novel_async(task_id, data, socketio_instance):
             background=background,
             mc_text=mc_text,
             dialogue_content=dialogue_content,
-            history_chapter_id=history_chapter_id,
-            chapter_id=chapter_id,
-            user_id=user_id
+            history_chapter_id=history_chapter_id
         )
         
         print(f"任务 {task_id} CrewAI 工作流生成结果：", result)
-        
-        novel_tasks[task_id]["progress"] = "正在保存小说到数据库..."
-        socketio_instance.emit('novel_task_update', {
-            'task_id': task_id,
-            'status': 'processing',
-            'progress': '正在保存小说到数据库...'
-        })
         
         # 更新任务状态为完成
         novel_tasks[task_id].update({
@@ -117,13 +81,26 @@ def generate_novel_async(task_id, data, socketio_instance):
             "result": result,
             "completed_at": datetime.now().isoformat()
         })
-        
-        # 通过 WebSocket 发送完成通知
-        socketio_instance.emit('novel_task_complete', {
-            'task_id': task_id,
-            'status': 'completed',
-            'result': result
-        })
+
+        # 自动存储到数据库
+        if chapter_id and user_id:
+            try:
+                novel = NovelRecord(
+                    chapter_id=chapter_id,
+                    user_id=user_id,
+                    title=title,
+                    content=result,
+                    create_time=datetime.utcnow()
+                )
+                db.session.add(novel)
+                db.session.commit()
+                novel_tasks[task_id]["novel_id"] = novel.id
+                novel_tasks[task_id]["message"] = "小说已成功保存到数据库"
+                print(f"任务 {task_id} 小说已保存到数据库，ID: {novel.id}")
+            except Exception as db_error:
+                db.session.rollback()
+                novel_tasks[task_id]["db_error"] = str(db_error)
+                print(f"任务 {task_id} 数据库保存失败：", str(db_error))
         
     except Exception as e:
         print(f"任务 {task_id} 生成失败：", str(e))
@@ -132,13 +109,6 @@ def generate_novel_async(task_id, data, socketio_instance):
             "status": "failed",
             "error": str(e),
             "failed_at": datetime.now().isoformat()
-        })
-        
-        # 通过 WebSocket 发送失败通知
-        socketio_instance.emit('novel_task_error', {
-            'task_id': task_id,
-            'status': 'failed',
-            'error': str(e)
         })
 
 @llm_bp.route("/chat", methods=["POST"])
@@ -478,24 +448,20 @@ def generate_novel():
         data = request.get_json()
         if not data or "prompt" not in data:
             return jsonify({"error": "缺少小说生成提示信息"}), 400
-        
-        if not data or "chapter_id" not in data:
-            return jsonify({"error": "缺少chapter_id参数"}), 400
-        
-        if not data or "user_id" not in data:
-            return jsonify({"error": "缺少user_id参数"}), 400
+
+        # 验证必填字段
+        if "chapter_id" not in data or "user_id" not in data:
+            return jsonify({"error": "缺少chapter_id或user_id参数"}), 400
 
         # 生成唯一任务ID
         task_id = str(uuid.uuid4())
         
-        # 导入 socketio 实例
-        from app.routes.websocket import socketio
+        # 启动后台任务 - 使用 copy_current_request_context 复制应用上下文
+        @copy_current_request_context
+        def run_with_context():
+            generate_novel_async(task_id, data)
         
-        # 启动后台任务
-        thread = threading.Thread(
-            target=generate_novel_async,
-            args=(task_id, data, socketio)
-        )
+        thread = threading.Thread(target=run_with_context)
         thread.daemon = True
         thread.start()
         
