@@ -1,7 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { Chapter, NovelRecord, ConversationMessage } from '../../../../types/db';
+
+interface ChapterWithNovels {
+  id: number;
+  name: string;
+  novels: NovelRecord[];
+  expanded: boolean;
+}
 
 interface NovelGenerationComponentProps {
   chapter: Partial<Chapter> | null;
@@ -11,6 +18,7 @@ interface NovelGenerationComponentProps {
   novels: NovelRecord[];
   messages: ConversationMessage[];
   onNovelsChange: (novels: NovelRecord[]) => void;
+  worldId?: number;
 }
 
 export default function NovelGenerationComponent({
@@ -20,12 +28,18 @@ export default function NovelGenerationComponent({
   worldContext,
   novels,
   messages,
-  onNovelsChange
+  onNovelsChange,
+  worldId
 }: NovelGenerationComponentProps) {
   const [generatingStory, setGeneratingStory] = useState<boolean>(false);
   const [generateStoryError, setGenerateStoryError] = useState<string | null>(null);
   const [selectedNovel, setSelectedNovel] = useState<NovelRecord | null>(null);
   const [isNovelModalOpen, setIsNovelModalOpen] = useState<boolean>(false);
+  
+  const [isChapterSelectorOpen, setIsChapterSelectorOpen] = useState<boolean>(false);
+  const [chaptersWithNovels, setChaptersWithNovels] = useState<ChapterWithNovels[]>([]);
+  const [selectedHistoryChapterId, setSelectedHistoryChapterId] = useState<number | null>(null);
+  const [loadingChapters, setLoadingChapters] = useState<boolean>(false);
 
   const openNovelModal = (novel: NovelRecord) => {
     setSelectedNovel(novel);
@@ -37,6 +51,65 @@ export default function NovelGenerationComponent({
     setSelectedNovel(null);
   };
 
+  const openChapterSelector = async () => {
+    if (!worldId) {
+      alert('无法获取世界ID');
+      return;
+    }
+    
+    setIsChapterSelectorOpen(true);
+    setLoadingChapters(true);
+    
+    try {
+      const chaptersRes = await fetch(`/api/db/worlds/${worldId}/chapters`);
+      if (!chaptersRes.ok) throw new Error('获取章节列表失败');
+      
+      const chapters = await chaptersRes.json();
+      
+      const chaptersWithNovelsData: ChapterWithNovels[] = await Promise.all(
+        chapters.map(async (ch: any) => {
+          const novelsRes = await fetch(`/api/db/chapters/${ch.id}/novels`);
+          const novels = novelsRes.ok ? await novelsRes.json() : [];
+          return {
+            id: ch.id,
+            name: ch.name,
+            novels,
+            expanded: false
+          };
+        })
+      );
+      
+      setChaptersWithNovels(chaptersWithNovelsData);
+    } catch (e) {
+      console.error('获取章节列表失败:', e);
+      alert('获取章节列表失败');
+    } finally {
+      setLoadingChapters(false);
+    }
+  };
+
+  const closeChapterSelector = () => {
+    setIsChapterSelectorOpen(false);
+    setSelectedHistoryChapterId(null);
+  };
+
+  const toggleChapterExpanded = (chapterId: number) => {
+    setChaptersWithNovels(prev =>
+      prev.map(ch =>
+        ch.id === chapterId ? { ...ch, expanded: !ch.expanded } : ch
+      )
+    );
+  };
+
+  const selectHistoryChapter = (novelId: number) => {
+    setSelectedHistoryChapterId(novelId);
+  };
+
+  const generateStoryWithHistory = async () => {
+    closeChapterSelector();
+    await generateStory(selectedHistoryChapterId);
+  };
+
   const sortByIdAsc = (arr: ConversationMessage[]) =>
     arr.slice().sort((a, b) => {
       const aTemp = a.id < 0;
@@ -46,7 +119,7 @@ export default function NovelGenerationComponent({
       return a.id - b.id;
     });
 
-  const handleGenerateStory = async () => {
+  const generateStory = async (historyChapterId: number | null = null) => {
     if (generatingStory) return;
     setGeneratingStory(true);
     setGenerateStoryError(null);
@@ -55,6 +128,7 @@ export default function NovelGenerationComponent({
       console.log('=== 开始生成故事 ===');
       console.log('worldContext:', worldContext);
       console.log('chapter:', chapter);
+      console.log('historyChapterId:', historyChapterId);
       
       const msgRes = await fetch(`/api/db/chapters/${chapterId}/messages`);
       const msgs = (await msgRes.json()) as ConversationMessage[];
@@ -76,7 +150,7 @@ export default function NovelGenerationComponent({
         master_sitting: worldContext?.master_sitting || '',
         main_characters: worldContext?.main_characters || [],
         background: chapter?.background || '',
-        history_chapter_id: null
+        history_chapter_id: historyChapterId ? String(historyChapterId) : null
       };
 
       console.log('发送小说生成请求:', JSON.stringify(requestData, null, 2));
@@ -181,6 +255,174 @@ export default function NovelGenerationComponent({
     );
   };
 
+  const ChapterSelectorModal = () => {
+    if (!isChapterSelectorOpen) return null;
+
+    return (
+      <div 
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 1000,
+          padding: '20px',
+        }}
+        onClick={closeChapterSelector}
+      >
+        <div 
+          style={{
+            backgroundColor: 'white',
+            borderRadius: '8px',
+            width: '100%',
+            maxWidth: '700px',
+            maxHeight: '80vh',
+            overflowY: 'auto',
+            padding: '24px',
+            boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)',
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+            <h2 style={{ margin: 0, fontSize: '20px', color: '#111827' }}>
+              选择历史章节
+            </h2>
+            <button
+              onClick={closeChapterSelector}
+              style={{
+                background: 'none',
+                border: 'none',
+                fontSize: '24px',
+                cursor: 'pointer',
+                color: '#6b7280',
+                padding: '4px',
+              }}
+            >
+              &times;
+            </button>
+          </div>
+          
+          {loadingChapters ? (
+            <div style={{ textAlign: 'center', padding: '40px', color: '#6b7280' }}>
+              加载中...
+            </div>
+          ) : chaptersWithNovels.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '40px', color: '#6b7280' }}>
+              暂无章节
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {chaptersWithNovels.map((ch) => (
+                <div key={ch.id} style={{ border: '1px solid #e5e7eb', borderRadius: '6px', overflow: 'hidden' }}>
+                  <div
+                    style={{
+                      padding: '12px 16px',
+                      backgroundColor: '#f9fafb',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                    }}
+                    onClick={() => toggleChapterExpanded(ch.id)}
+                  >
+                    <span style={{ fontWeight: 500, color: '#111827' }}>{ch.name}</span>
+                    <span style={{ color: '#6b7280', fontSize: '14px' }}>
+                      {ch.expanded ? '▼' : '▶'} ({ch.novels.length} 个故事)
+                    </span>
+                  </div>
+                  
+                  {ch.expanded && (
+                    <div style={{ padding: '8px 0' }}>
+                      {ch.novels.length === 0 ? (
+                        <div style={{ padding: '12px 16px', color: '#9ca3af', fontSize: '14px' }}>
+                          暂无故事
+                        </div>
+                      ) : (
+                        ch.novels.map((novel) => (
+                          <div
+                            key={novel.id}
+                            style={{
+                              padding: '10px 16px',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              transition: 'background-color 0.2s',
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              selectHistoryChapter(novel.id);
+                            }}
+                            onMouseEnter={(e) => {
+                              (e.currentTarget as HTMLDivElement).style.backgroundColor = '#f0f9ff';
+                            }}
+                            onMouseLeave={(e) => {
+                              (e.currentTarget as HTMLDivElement).style.backgroundColor = 'transparent';
+                            }}
+                          >
+                            <input
+                              type="radio"
+                              name="historyChapter"
+                              checked={selectedHistoryChapterId === novel.id}
+                              readOnly
+                              style={{ cursor: 'pointer' }}
+                            />
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontWeight: 500, color: '#111827', fontSize: '14px' }}>
+                                {novel.title || '未命名故事'}
+                              </div>
+                              <div style={{ color: '#9ca3af', fontSize: '12px', marginTop: '2px' }}>
+                                {new Date(novel.create_time).toLocaleString()}
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          
+          <div style={{ display: 'flex', gap: '12px', marginTop: '24px', justifyContent: 'flex-end' }}>
+            <button
+              onClick={closeChapterSelector}
+              style={{
+                padding: '8px 16px',
+                borderRadius: '6px',
+                border: '1px solid #e5e7eb',
+                background: '#fff',
+                cursor: 'pointer',
+                color: '#374151',
+              }}
+            >
+              取消
+            </button>
+            <button
+              onClick={generateStoryWithHistory}
+              style={{
+                padding: '8px 16px',
+                borderRadius: '6px',
+                border: 'none',
+                background: '#3b82f6',
+                cursor: 'pointer',
+                color: '#fff',
+              }}
+            >
+              开始生成
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <>
       <style jsx>{`
@@ -238,7 +480,7 @@ export default function NovelGenerationComponent({
         </div>
         <button
           type="button"
-          onClick={handleGenerateStory}
+          onClick={openChapterSelector}
           style={{
             marginTop: 8,
             padding: '8px 12px',
@@ -258,6 +500,7 @@ export default function NovelGenerationComponent({
         )}
       </section>
       <NovelDetailModal />
+      <ChapterSelectorModal />
     </>
   );
 }

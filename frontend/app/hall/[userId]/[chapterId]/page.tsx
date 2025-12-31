@@ -472,6 +472,7 @@ export default function ChapterPage() {
           chapter={chapter}
           chapterId={chapterId}
           userId={userId}
+          worldId={chapter?.world_id}
           worldContext={worldContext}
           novels={novels}
           messages={messages}
