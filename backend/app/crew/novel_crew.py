@@ -5,7 +5,8 @@
 
 from crewai import Agent, Task, Crew, Process, LLM
 from typing import Dict, Optional, List
-from app.models import NovelRecord
+from app.models import NovelRecord, db
+from datetime import datetime
 import yaml
 import os
 
@@ -67,7 +68,8 @@ class NovelCrew:
         
         for agent_name, agent_config in self.agents_config.items():
             if agent_name == 'writer':
-                llm = self.llm_46
+                # llm = self.llm_46
+                llm = self.llm_plus
             else:
                 llm = self.llm_plus
             
@@ -113,7 +115,7 @@ class NovelCrew:
                 prompt=data.get('prompt', ''),
                 worldview=data.get('worldview', ''),
                 master_sitting=data.get('master_sitting', ''),
-                main_characters=data.get('main_characters', ''),
+                mc_text=data.get('mc_text', ''),
                 background=data.get('background', '')
             ),
             agent=agents['dialogue_analyst'],
@@ -184,7 +186,9 @@ def generate_novel_with_crew(
     background: str,
     mc_text: str,
     dialogue_content: str,
-    history_chapter_id: Optional[str] = None
+    history_chapter_id: Optional[str] = None,
+    chapter_id: Optional[int] = None,
+    user_id: Optional[int] = None
 ) -> str:
     """
     使用 CrewAI 工作流生成小说的便捷函数
@@ -197,6 +201,8 @@ def generate_novel_with_crew(
         mc_text: 主要角色文本
         dialogue_content: 对话内容
         history_chapter_id: 历史章节ID，如果有则视为创作新章节
+        chapter_id: 当前章节ID，用于存储生成的小说
+        user_id: 用户ID，用于存储生成的小说
     
     Returns:
         生成的小说内容
@@ -227,6 +233,19 @@ def generate_novel_with_crew(
     crew = NovelCrew(zhipu_api_key=Config.ZHIPU_API_KEY)
 
     result = crew.generate_novel(data, has_history)
+    
+    if chapter_id and user_id:
+        app = create_app()
+        with app.app_context():
+            novel = NovelRecord(
+                chapter_id=chapter_id,
+                user_id=user_id,
+                title=None,
+                content=result,
+                create_time=datetime.utcnow()
+            )
+            db.session.add(novel)
+            db.session.commit()
     
     return result
 

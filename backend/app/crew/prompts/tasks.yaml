@@ -25,7 +25,7 @@ dialogue_analysis:
     对话：{prompt}
     世界观：{worldview}
     核心人物：{master_sitting}
-    其余角色：{main_characters}
+    其余角色：{mc_text}
     玩家背景：{background}
     
     输出：
@@ -33,7 +33,7 @@ dialogue_analysis:
     2. 情感基调（20字内）
   expected_output: 对话分析报告
   agent: dialogue_analyst
-  # 输入参数：prompt、worldview、master_sitting、main_characters、background
+  # 输入参数：prompt、worldview、master_sitting、mc_text、background
   # 无前置任务
 
 # 剧情规划任务

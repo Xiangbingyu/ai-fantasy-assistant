@@ -35,6 +35,8 @@ def generate_novel_async(task_id, data, socketio_instance):
         
         # 获取必要参数
         history_chapter_id = data.get("history_chapter_id")
+        chapter_id = data.get("chapter_id")
+        user_id = data.get("user_id")
         worldview = data.get("worldview")
         master_sitting = data.get("master_sitting")
         main_characters = data.get("main_characters")
@@ -80,6 +82,13 @@ def generate_novel_async(task_id, data, socketio_instance):
         # 调用 CrewAI 工作流生成小说
         from app.crew.novel_crew import generate_novel_with_crew
         
+        novel_tasks[task_id]["progress"] = "正在生成小说内容（可能需要较长时间，请耐心等待）..."
+        socketio_instance.emit('novel_task_update', {
+            'task_id': task_id,
+            'status': 'processing',
+            'progress': '正在生成小说内容（可能需要较长时间，请耐心等待）...'
+        })
+        
         result = generate_novel_with_crew(
             worldview=worldview,
             master_sitting=master_sitting,
@@ -87,10 +96,19 @@ def generate_novel_async(task_id, data, socketio_instance):
             background=background,
             mc_text=mc_text,
             dialogue_content=dialogue_content,
-            history_chapter_id=history_chapter_id
+            history_chapter_id=history_chapter_id,
+            chapter_id=chapter_id,
+            user_id=user_id
         )
         
         print(f"任务 {task_id} CrewAI 工作流生成结果：", result)
+        
+        novel_tasks[task_id]["progress"] = "正在保存小说到数据库..."
+        socketio_instance.emit('novel_task_update', {
+            'task_id': task_id,
+            'status': 'processing',
+            'progress': '正在保存小说到数据库...'
+        })
         
         # 更新任务状态为完成
         novel_tasks[task_id].update({
@@ -460,6 +478,12 @@ def generate_novel():
         data = request.get_json()
         if not data or "prompt" not in data:
             return jsonify({"error": "缺少小说生成提示信息"}), 400
+        
+        if not data or "chapter_id" not in data:
+            return jsonify({"error": "缺少chapter_id参数"}), 400
+        
+        if not data or "user_id" not in data:
+            return jsonify({"error": "缺少user_id参数"}), 400
 
         # 生成唯一任务ID
         task_id = str(uuid.uuid4())
