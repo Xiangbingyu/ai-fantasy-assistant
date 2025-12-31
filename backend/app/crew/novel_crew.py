@@ -22,8 +22,15 @@ class NovelCrew:
         """
         self.zhipu_api_key = zhipu_api_key
         
-        self.llm = LLM(
+        self.llm_plus = LLM(
             model="glm-4-plus",
+            base_url="https://open.bigmodel.cn/api/paas/v4",
+            temperature=0.7,
+            api_key=zhipu_api_key
+        )
+        
+        self.llm_46 = LLM(
+            model="glm-4.6",
             base_url="https://open.bigmodel.cn/api/paas/v4",
             temperature=0.7,
             api_key=zhipu_api_key
@@ -59,13 +66,18 @@ class NovelCrew:
         agents = {}
         
         for agent_name, agent_config in self.agents_config.items():
+            if agent_name == 'writer':
+                llm = self.llm_46
+            else:
+                llm = self.llm_plus
+            
             agent = Agent(
                 role=agent_config['role'],
                 goal=agent_config['goal'],
                 backstory=agent_config['backstory'],
                 verbose=agent_config.get('verbose', True),
                 allow_delegation=agent_config.get('allow_delegation', False),
-                llm=self.llm
+                llm=llm
             )
             agents[agent_name] = agent
         
@@ -85,76 +97,55 @@ class NovelCrew:
         """
         tasks = []
         
-        # 如果有历史章节，添加历史上下文分析任务
         historical_task = None
         if has_history:
-            historical_config = self.tasks_config['historical_context_analysis']
-            description = historical_config['description'].format(
-                history_chapters=data.get('history_chapters', '')
-            )
             historical_task = Task(
-                description=description,
+                description=self.tasks_config['historical_context_analysis']['description'].format(
+                    history_chapters=data.get('history_chapters', '')
+                ),
                 agent=agents['historical_context_analyst'],
-                expected_output=historical_config['expected_output']
+                expected_output=self.tasks_config['historical_context_analysis']['expected_output']
             )
             tasks.append(historical_task)
         
-        # 对话分析任务
-        dialogue_config = self.tasks_config['dialogue_analysis']
-        description = dialogue_config['description'].format(
-            prompt=data.get('prompt', ''),
-            worldview=data.get('worldview', ''),
-            master_sitting=data.get('master_sitting', ''),
-            main_characters=data.get('main_characters', ''),
-            background=data.get('background', '')
-        )
         dialogue_task = Task(
-            description=description,
+            description=self.tasks_config['dialogue_analysis']['description'].format(
+                prompt=data.get('prompt', ''),
+                worldview=data.get('worldview', ''),
+                master_sitting=data.get('master_sitting', ''),
+                main_characters=data.get('main_characters', ''),
+                background=data.get('background', '')
+            ),
             agent=agents['dialogue_analyst'],
-            expected_output=dialogue_config['expected_output']
+            expected_output=self.tasks_config['dialogue_analysis']['expected_output']
         )
         tasks.append(dialogue_task)
-        
-        # 剧情规划任务
-        planning_config = self.tasks_config['story_planning']
-        # CrewAI 会自动将前置任务的输出作为上下文，不需要手动添加 {context}
-        description = planning_config['description'].replace('{prompt}', data.get('prompt', ''))
         
         context_tasks = [dialogue_task]
         if historical_task:
             context_tasks.insert(0, historical_task)
         
         planning_task = Task(
-            description=description,
+            description=self.tasks_config['story_planning']['description'].replace('{prompt}', data.get('prompt', '')),
             agent=agents['story_planner'],
-            expected_output=planning_config['expected_output'],
-            context=context_tasks  # 依赖历史上下文分析和对话分析的结果
+            expected_output=self.tasks_config['story_planning']['expected_output'],
+            context=context_tasks
         )
         tasks.append(planning_task)
         
-        # 写作任务
-        writing_config = self.tasks_config['writing']
-        # CrewAI 会自动将前置任务的输出作为上下文，不需要手动添加 {context}
-        description = writing_config['description'].replace('{prompt}', data.get('prompt', ''))
-        
         writing_task = Task(
-            description=description,
+            description=self.tasks_config['writing']['description'].replace('{prompt}', data.get('prompt', '')),
             agent=agents['writer'],
-            expected_output=writing_config['expected_output'],
-            context=[planning_task]  # 依赖剧情规划的结果
+            expected_output=self.tasks_config['writing']['expected_output'],
+            context=[planning_task]
         )
         tasks.append(writing_task)
         
-        # 修饰润色任务
-        polishing_config = self.tasks_config['polishing']
-        # CrewAI 会自动将前置任务的输出作为上下文，不需要手动添加 {context}
-        description = polishing_config['description']
-        
         polishing_task = Task(
-            description=description,
+            description=self.tasks_config['polishing']['description'],
             agent=agents['polisher'],
-            expected_output=polishing_config['expected_output'],
-            context=[writing_task]  # 依赖写作的结果
+            expected_output=self.tasks_config['polishing']['expected_output'],
+            context=[writing_task]
         )
         tasks.append(polishing_task)
         
@@ -171,13 +162,9 @@ class NovelCrew:
         Returns:
             生成的小说内容
         """
-        # 创建智能体
         agents = self.create_agents()
-        
-        # 创建任务
         tasks = self.create_tasks(agents, data, has_history)
-        
-        # 创建工作流
+
         crew = Crew(
             agents=list(agents.values()),
             tasks=tasks,
@@ -185,8 +172,7 @@ class NovelCrew:
             verbose=True,
             max_rpm=60  # 限制每分钟请求数，防止API限流
         )
-        
-        # 执行工作流
+
         result = crew.kickoff()
         
         return str(result)
