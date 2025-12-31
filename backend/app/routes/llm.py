@@ -453,24 +453,36 @@ def generate_novel():
         if "chapter_id" not in data or "user_id" not in data:
             return jsonify({"error": "缺少chapter_id或user_id参数"}), 400
 
-        # 生成唯一任务ID
+        # 同步调用小说生成
         task_id = str(uuid.uuid4())
         
-        # 启动后台任务 - 使用 copy_current_request_context 复制应用上下文
-        @copy_current_request_context
-        def run_with_context():
-            generate_novel_async(task_id, data)
+        # 初始化任务状态
+        novel_tasks[task_id] = {
+            "status": "processing",
+            "progress": "开始生成小说...",
+            "created_at": datetime.now().isoformat(),
+            "result": None,
+            "error": None
+        }
         
-        thread = threading.Thread(target=run_with_context)
-        thread.daemon = True
-        thread.start()
+        # 同步执行小说生成
+        generate_novel_async(task_id, data)
         
-        # 立即返回任务ID
-        return jsonify({
-            "task_id": task_id,
-            "status": "accepted",
-            "message": "小说生成任务已接受，正在处理中..."
-        })
+        # 获取生成结果
+        task_info = novel_tasks.get(task_id, {})
+        
+        if task_info.get("status") == "completed":
+            return jsonify({
+                "status": "completed",
+                "message": task_info.get("message", "小说生成完成"),
+                "novel_id": task_info.get("novel_id"),
+                "result": task_info.get("result")
+            })
+        else:
+            return jsonify({
+                "status": "failed",
+                "error": task_info.get("error", "小说生成失败")
+            }), 500
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500

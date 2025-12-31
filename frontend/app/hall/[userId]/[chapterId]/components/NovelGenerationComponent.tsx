@@ -1,7 +1,6 @@
 'use client';
 
-import { useMemo, useState, useEffect, useRef } from 'react';
-import { Socket } from 'socket.io-client';
+import { useState } from 'react';
 import type { Chapter, NovelRecord, ConversationMessage } from '../../../../types/db';
 
 interface NovelGenerationComponentProps {
@@ -12,8 +11,6 @@ interface NovelGenerationComponentProps {
   novels: NovelRecord[];
   messages: ConversationMessage[];
   onNovelsChange: (novels: NovelRecord[]) => void;
-  socket: Socket | null;
-  isConnected: boolean;
 }
 
 export default function NovelGenerationComponent({
@@ -23,21 +20,12 @@ export default function NovelGenerationComponent({
   worldContext,
   novels,
   messages,
-  onNovelsChange,
-  socket,
-  isConnected
+  onNovelsChange
 }: NovelGenerationComponentProps) {
   const [generatingStory, setGeneratingStory] = useState<boolean>(false);
   const [generateStoryError, setGenerateStoryError] = useState<string | null>(null);
   const [selectedNovel, setSelectedNovel] = useState<NovelRecord | null>(null);
   const [isNovelModalOpen, setIsNovelModalOpen] = useState<boolean>(false);
-  
-  // 异步任务相关状态
-  const [currentTaskId, setCurrentTaskId] = useState<string | null>(null);
-  const [taskStatus, setTaskStatus] = useState<'pending' | 'processing' | 'completed' | 'failed' | null>(null);
-  const [taskProgress, setTaskProgress] = useState<string>('');
-  const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(null);
-  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const openNovelModal = (novel: NovelRecord) => {
     setSelectedNovel(novel);
@@ -48,135 +36,6 @@ export default function NovelGenerationComponent({
     setIsNovelModalOpen(false);
     setSelectedNovel(null);
   };
-
-  // 清理轮询
-  const clearPolling = () => {
-    if (pollingIntervalRef.current) {
-      clearInterval(pollingIntervalRef.current);
-      pollingIntervalRef.current = null;
-    }
-    setPollingInterval(null);
-  };
-
-  // 轮询任务状态
-  const pollTaskStatus = async (taskId: string) => {
-    try {
-      const res = await fetch(`/api/novel/status/${taskId}`);
-      const data = await res.json();
-      
-      if (res.ok) {
-        setTaskStatus(data.status);
-        
-        if (data.status === 'completed' && data.result) {
-          // 任务完成，保存故事
-          const title = (data.result.split('\n').find((line: string) => line.trim().length) || 'AI故事').slice(0, 50);
-          
-          const saveRes = await fetch(`/api/db/chapters/${chapterId}/novels`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              user_id: Number(userId),
-              title,
-              content: data.result,
-            }),
-          });
-          
-          if (saveRes.ok) {
-            const saved = await saveRes.json();
-            onNovelsChange([saved, ...novels]);
-          }
-          
-          clearPolling();
-          setGeneratingStory(false);
-          setCurrentTaskId(null);
-          setTaskStatus(null);
-          setTaskProgress('');
-        } else if (data.status === 'failed') {
-          setGenerateStoryError(data.error || '生成故事失败');
-          clearPolling();
-          setGeneratingStory(false);
-          setCurrentTaskId(null);
-          setTaskStatus(null);
-          setTaskProgress('');
-        }
-      }
-    } catch (e) {
-      console.error('轮询任务状态失败:', e);
-    }
-  };
-
-  // WebSocket事件监听
-  useEffect(() => {
-    if (!socket || !isConnected) return;
-
-    const handleNovelProgress = (data: any) => {
-      if (data.task_id === currentTaskId) {
-        setTaskProgress(data.message);
-        if (data.status) {
-          setTaskStatus(data.status);
-        }
-      }
-    };
-
-    const handleNovelComplete = (data: any) => {
-      if (data.task_id === currentTaskId) {
-        setTaskProgress('故事生成完成！');
-        setTaskStatus('completed');
-        clearPolling();
-        
-        // 保存故事
-        const title = (data.result.split('\n').find((line: string) => line.trim().length) || 'AI故事').slice(0, 50);
-        
-        fetch(`/api/db/chapters/${chapterId}/novels`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            user_id: Number(userId),
-            title,
-            content: data.result,
-          }),
-        }).then(async (saveRes) => {
-          if (saveRes.ok) {
-            const saved = await saveRes.json();
-            onNovelsChange([saved, ...novels]);
-          }
-        }).finally(() => {
-          setGeneratingStory(false);
-          setCurrentTaskId(null);
-          setTaskStatus(null);
-          setTaskProgress('');
-        });
-      }
-    };
-
-    const handleNovelError = (data: any) => {
-      if (data.task_id === currentTaskId) {
-        setGenerateStoryError(data.error || '生成故事失败');
-        clearPolling();
-        setGeneratingStory(false);
-        setCurrentTaskId(null);
-        setTaskStatus(null);
-        setTaskProgress('');
-      }
-    };
-
-    socket.on('novel_progress', handleNovelProgress);
-    socket.on('novel_complete', handleNovelComplete);
-    socket.on('novel_error', handleNovelError);
-
-    return () => {
-      socket.off('novel_progress', handleNovelProgress);
-      socket.off('novel_complete', handleNovelComplete);
-      socket.off('novel_error', handleNovelError);
-    };
-  }, [socket, isConnected, currentTaskId, chapterId, userId, novels, onNovelsChange]);
-
-  // 组件卸载时清理轮询
-  useEffect(() => {
-    return () => {
-      clearPolling();
-    };
-  }, []);
 
   const sortByIdAsc = (arr: ConversationMessage[]) =>
     arr.slice().sort((a, b) => {
@@ -191,10 +50,12 @@ export default function NovelGenerationComponent({
     if (generatingStory) return;
     setGeneratingStory(true);
     setGenerateStoryError(null);
-    setTaskProgress('正在提交任务...');
-    setTaskStatus('pending');
     
     try {
+      console.log('=== 开始生成故事 ===');
+      console.log('worldContext:', worldContext);
+      console.log('chapter:', chapter);
+      
       const msgRes = await fetch(`/api/db/chapters/${chapterId}/messages`);
       const msgs = (await msgRes.json()) as ConversationMessage[];
       if (!msgRes.ok) throw new Error('获取消息失败');
@@ -203,46 +64,56 @@ export default function NovelGenerationComponent({
       const ordered = sortByIdAsc(canonical);
       const prompt = ordered.map((m) => m.content).join('\n');
 
-      // 提交异步任务
+      console.log('prompt内容:', prompt);
+      console.log('prompt长度:', prompt.length);
+
+      const requestData = {
+        chapter_id: Number(chapterId),
+        user_id: Number(userId),
+        title: 'AI生成故事',
+        prompt,
+        worldview: worldContext?.worldview || '',
+        master_sitting: worldContext?.master_sitting || '',
+        main_characters: worldContext?.main_characters || [],
+        background: chapter?.background || '',
+        history_chapter_id: null
+      };
+
+      console.log('发送小说生成请求:', JSON.stringify(requestData, null, 2));
+
       const novelRes = await fetch(`/api/novel`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt,
-          worldview: worldContext?.worldview,
-          master_sitting: worldContext?.master_sitting,
-          main_characters: worldContext?.main_characters,
-          background: chapter?.background,
-        }),
+        body: JSON.stringify(requestData),
       });
       
       const novelData = await novelRes.json();
+      console.log('小说生成响应:', novelData);
+      
       if (!novelRes.ok) {
         const msg =
           typeof novelData?.error === 'string'
             ? novelData.error
-            : novelData?.error?.message || '提交任务失败';
+            : novelData?.error?.message || '生成故事失败';
         throw new Error(msg);
       }
 
-      const taskId = novelData.task_id;
-      if (!taskId) throw new Error('未获取到任务ID');
+      if (novelData.status === 'completed') {
+        const fetchRes = await fetch(`/api/db/chapters/${chapterId}/novels`);
+        if (fetchRes.ok) {
+          const updatedNovels = await fetchRes.json();
+          onNovelsChange(updatedNovels);
+        }
+      } else {
+        throw new Error(novelData.error || '生成故事失败');
+      }
 
-      setCurrentTaskId(taskId);
-      setTaskProgress('任务已提交，正在生成故事...');
-      setTaskStatus('processing');
-
-      // 启动轮询
-      pollingIntervalRef.current = setInterval(() => {
-        pollTaskStatus(taskId);
-      }, 2000);
-      setPollingInterval(pollingIntervalRef.current);
+      setGeneratingStory(false);
 
     } catch (e) {
+      console.error('生成故事失败:', e);
       setGenerateStoryError(e instanceof Error ? e.message : '生成故事异常');
       setGeneratingStory(false);
-      setTaskStatus(null);
-      setTaskProgress('');
     }
   };
 
@@ -381,39 +252,6 @@ export default function NovelGenerationComponent({
         >
           {generatingStory ? '生成中...' : '生成故事'}
         </button>
-        
-        {/* 任务进度显示 */}
-        {generatingStory && taskProgress && (
-          <div style={{ 
-            marginTop: 8, 
-            padding: '8px 12px', 
-            borderRadius: 6, 
-            backgroundColor: '#f0f9ff', 
-            border: '1px solid #3b82f6',
-            fontSize: '14px',
-            color: '#1e40af'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ 
-                width: 12, 
-                height: 12, 
-                borderRadius: '50%', 
-                backgroundColor: taskStatus === 'processing' ? '#3b82f6' : '#6b7280',
-                animation: taskStatus === 'processing' ? 'pulse 1.5s infinite' : 'none'
-              }}></div>
-              <span>{taskProgress}</span>
-            </div>
-            {taskStatus === 'processing' && (
-              <div style={{ 
-                marginTop: 4, 
-                fontSize: '12px', 
-                color: '#6b7280' 
-              }}>
-                任务ID: {currentTaskId}
-              </div>
-            )}
-          </div>
-        )}
         
         {generateStoryError && (
           <div style={{ color: '#ef4444', marginTop: 8 }}>{generateStoryError}</div>

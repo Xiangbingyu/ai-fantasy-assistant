@@ -7,7 +7,7 @@ BASE_URL = "http://localhost:4000"
 def test_novel_generation():
     """测试小说生成接口"""
     print("=" * 60)
-    print("测试 1: 小说生成接口")
+    print("测试 1: 小说生成接口（同步模式）")
     print("=" * 60)
     
     # 准备测试数据
@@ -30,7 +30,7 @@ def test_novel_generation():
     print(f"请求数据: {json.dumps(test_data, ensure_ascii=False, indent=2)}")
     
     try:
-        # 调用小说生成接口
+        # 调用小说生成接口（同步模式）
         response = requests.post(
             f"{BASE_URL}/api/novel",
             json=test_data,
@@ -41,12 +41,22 @@ def test_novel_generation():
         result = response.json()
         print(f"响应内容: {json.dumps(result, ensure_ascii=False, indent=2)}")
         
-        if response.status_code == 200 and "task_id" in result:
-            task_id = result["task_id"]
-            print(f"\n✓ 小说生成任务已创建，任务ID: {task_id}")
-            return task_id
+        if response.status_code == 200:
+            status = result.get("status")
+            if status == "completed":
+                print(f"\n✓ 小说生成成功！")
+                print(f"小说ID: {result.get('novel_id')}")
+                print(f"消息: {result.get('message')}")
+                print(f"\n生成的小说内容（前200字）:")
+                novel_content = result.get('result', '')
+                print(novel_content[:200] + "..." if len(novel_content) > 200 else novel_content)
+                return result
+            elif status == "failed":
+                print(f"\n✗ 小说生成失败")
+                print(f"错误信息: {result.get('error')}")
+                return result
         else:
-            print(f"\n✗ 小说生成任务创建失败")
+            print(f"\n✗ 请求失败")
             return None
             
     except requests.exceptions.ConnectionError:
@@ -58,61 +68,36 @@ def test_novel_generation():
         return None
 
 def test_novel_status(task_id):
-    """测试任务状态查询接口"""
+    """测试任务状态查询接口（已弃用，保留用于兼容性测试）"""
     print("\n" + "=" * 60)
-    print("测试 2: 任务状态查询接口")
+    print("测试 2: 任务状态查询接口（已弃用）")
     print("=" * 60)
+    
+    print("注意：由于接口已改为同步模式，此接口主要用于测试向后兼容性")
     
     if not task_id:
         print("✗ 没有有效的任务ID，跳过测试")
         return None
     
-    max_attempts = 60  # 最多等待60次（每次1秒）
-    attempt = 0
-    
-    while attempt < max_attempts:
-        try:
-            print(f"\n第 {attempt + 1} 次查询任务状态...")
-            response = requests.get(f"{BASE_URL}/api/novel/status/{task_id}")
-            
-            if response.status_code == 200:
-                task_info = response.json()
-                print(f"任务状态: {task_info.get('status')}")
-                print(f"进度: {task_info.get('progress')}")
-                
-                status = task_info.get("status")
-                
-                if status == "completed":
-                    print(f"\n✓ 任务完成！")
-                    print(f"小说ID: {task_info.get('novel_id')}")
-                    print(f"消息: {task_info.get('message')}")
-                    print(f"\n生成的小说内容（前200字）:")
-                    result = task_info.get('result', '')
-                    print(result[:200] + "..." if len(result) > 200 else result)
-                    return task_info
-                    
-                elif status == "failed":
-                    print(f"\n✗ 任务失败")
-                    print(f"错误信息: {task_info.get('error')}")
-                    if 'db_error' in task_info:
-                        print(f"数据库错误: {task_info.get('db_error')}")
-                    return task_info
-                    
-                else:
-                    # 任务仍在进行中，等待1秒后继续查询
-                    time.sleep(2)
-                    attempt += 1
-                    
-            else:
-                print(f"✗ 查询失败，状态码: {response.status_code}")
-                return None
-                
-        except Exception as e:
-            print(f"✗ 查询失败: {str(e)}")
+    try:
+        print(f"\n查询任务状态: {task_id}")
+        response = requests.get(f"{BASE_URL}/api/novel/status/{task_id}")
+        
+        print(f"响应状态码: {response.status_code}")
+        
+        if response.status_code == 200:
+            task_info = response.json()
+            print(f"任务状态: {task_info.get('status')}")
+            print(f"进度: {task_info.get('progress')}")
+            print(f"\n✓ 状态查询接口仍然可用（向后兼容）")
+            return task_info
+        else:
+            print(f"✗ 查询失败，状态码: {response.status_code}")
             return None
-    
-    print(f"\n✗ 任务超时（超过{max_attempts * 2}秒）")
-    return None
+            
+    except Exception as e:
+        print(f"✗ 查询失败: {str(e)}")
+        return None
 
 def test_novel_cleanup():
     """测试任务清理接口"""
@@ -145,8 +130,8 @@ def test_database_query():
     print("=" * 60)
     
     try:
-        # 查询指定章节的小说
-        chapter_id = 1
+        # 查询指定章节的小说（使用测试数据中的 chapter_id=205）
+        chapter_id = 205
         response = requests.get(f"{BASE_URL}/api/db/chapters/{chapter_id}/novels")
         
         print(f"响应状态码: {response.status_code}")
@@ -163,7 +148,7 @@ def test_database_query():
                 print(f"  用户ID: {latest_novel.get('user_id')}")
                 print(f"  创建时间: {latest_novel.get('create_time')}")
                 print(f"  内容长度: {len(latest_novel.get('content', ''))} 字符")
-                print(f"\n✓ 数据库查询成功")
+                print(f"\n✓ 数据库查询成功，小说已成功保存到数据库")
                 return novels
             else:
                 print(f"\n✗ 数据库中没有找到小说记录")
@@ -231,21 +216,21 @@ def test_invalid_requests():
 def main():
     """运行所有测试"""
     print("\n" + "=" * 60)
-    print("小说生成接口测试套件")
+    print("小说生成接口测试套件（同步模式）")
     print("=" * 60)
     print(f"后端地址: {BASE_URL}")
     print()
     
-    # 测试 1: 小说生成
-    task_id = test_novel_generation()
+    # 测试 1: 小说生成（同步模式，直接返回结果）
+    result = test_novel_generation()
     
-    if task_id:
-        # 测试 2: 任务状态查询
-        task_info = test_novel_status(task_id)
-        
-        # 测试 4: 数据库查询
-        if task_info and task_info.get("status") == "completed":
-            test_database_query()
+    # 测试 4: 数据库查询（如果生成成功）
+    if result and result.get("status") == "completed":
+        test_database_query()
+    
+    # 测试 2: 任务状态查询（测试向后兼容性）
+    # 使用一个假的 task_id 来测试接口是否存在
+    test_novel_status("test-task-id-for-compatibility")
     
     # 测试 3: 任务清理
     test_novel_cleanup()

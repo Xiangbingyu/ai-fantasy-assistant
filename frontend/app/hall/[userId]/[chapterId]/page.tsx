@@ -94,7 +94,7 @@ export default function ChapterPage() {
     });
 
   useEffect(() => {
-    const newSocket = io('http://120.48.16.108:4000');
+    const newSocket = io('http://localhost:4000');
     
     newSocket.on('connect', () => {
       console.log('Connected to WebSocket');
@@ -476,12 +476,10 @@ export default function ChapterPage() {
           novels={novels}
           messages={messages}
           onNovelsChange={setNovels}
-          socket={socket}
-          isConnected={isConnected}
         />
       </aside>
     );
-  }, [chapter, chapterId, worldContext, novels, messages, socket, isConnected]);
+  }, [chapter, chapterId, worldContext, novels, messages]);
 
   const paper = useMemo(() => {
     return (

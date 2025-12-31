@@ -10,7 +10,7 @@ const nextConfig: NextConfig = {
     ];
   },
   experimental: {
-    proxyTimeout: 60000, // 60秒超时
+    proxyTimeout: 300000, // 300秒超时（5分钟）
   },
 };
 
