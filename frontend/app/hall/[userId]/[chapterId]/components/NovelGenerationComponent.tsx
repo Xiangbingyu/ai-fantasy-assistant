@@ -445,6 +445,17 @@ export default function NovelGenerationComponent({
           </div>
           
           <div style={{ 
+            padding: '12px 20px',
+            backgroundColor: '#eff6ff',
+            borderBottom: '1px solid #dbeafe',
+            color: '#1e40af',
+            fontSize: '13px',
+            lineHeight: '1.5'
+          }}>
+            选择一个你要承接的章节下的一篇文章，如果不选择则视为原创新章节
+          </div>
+          
+          <div style={{ 
             padding: '16px', 
             overflowY: 'auto',
             flex: 1
