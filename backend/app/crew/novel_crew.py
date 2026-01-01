@@ -3,11 +3,26 @@
 使用 CrewAI 框架构建多智能体协作的小说生成系统
 """
 
+import os
+import sys
+import signal
+
+# Monkey patch: 禁用 signal.signal 在非主线程中的调用
+_original_signal_signal = signal.signal
+
+def _safe_signal(sig, handler):
+    try:
+        return _original_signal_signal(sig, handler)
+    except ValueError:
+        # 忽略在非主线程中注册信号处理器的错误
+        return None
+
+signal.signal = _safe_signal
+
 from crewai import Agent, Task, Crew, Process, LLM
 from typing import Dict, Optional, List
 from app.models import NovelRecord
 import yaml
-import os
 
 
 class NovelCrew:
