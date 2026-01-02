@@ -273,8 +273,6 @@ export default function NovelGenerationComponent({
       const prompt = ordered.map((m) => m.content).join('\n');
 
       const requestBody: any = {
-        chapter_id: Number(chapterId),
-        user_id: Number(userId),
         prompt,
         worldview: worldContext?.worldview,
         master_sitting: worldContext?.master_sitting,

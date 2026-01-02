@@ -11,7 +11,6 @@ llm_bp = Blueprint('llm', __name__, url_prefix='/api')
 
 client = ZhipuAiClient(api_key=Config.ZHIPU_API_KEY)
 
-# 全局任务存储，用于跟踪异步任务状态
 novel_tasks = {}
 
 def generate_novel_async(task_id, data, socketio_instance):
@@ -20,7 +19,7 @@ def generate_novel_async(task_id, data, socketio_instance):
         # 更新任务状态为处理中
         novel_tasks[task_id] = {
             "status": "processing",
-            "progress": "开始生成小说...",
+            "progress": "正在生成小说内容（可能需要较长时间，请耐心等待）...",
             "created_at": datetime.now().isoformat(),
             "result": None,
             "error": None
@@ -30,38 +29,16 @@ def generate_novel_async(task_id, data, socketio_instance):
         socketio_instance.emit('novel_task_update', {
             'task_id': task_id,
             'status': 'processing',
-            'progress': '开始生成小说...'
+            'progress': '正在生成小说内容（可能需要较长时间，请耐心等待）...'
         })
         
         # 获取必要参数
         history_chapter_id = data.get("history_chapter_id")
-        chapter_id = data.get("chapter_id")
-        user_id = data.get("user_id")
         worldview = data.get("worldview")
         master_sitting = data.get("master_sitting")
         main_characters = data.get("main_characters")
         background = data.get("background")
         dialogue_content = data.get("prompt")
-        
-        # 判断是否为创作新章节
-        has_history = history_chapter_id is not None and history_chapter_id != ""
-        
-        if has_history:
-            # 更新进度
-            novel_tasks[task_id]["progress"] = "检测到历史章节，正在分析上下文..."
-            socketio_instance.emit('novel_task_update', {
-                'task_id': task_id,
-                'status': 'processing',
-                'progress': '检测到历史章节，正在分析上下文...'
-            })
-        else:
-            # 更新进度
-            novel_tasks[task_id]["progress"] = "开始创作独立章节..."
-            socketio_instance.emit('novel_task_update', {
-                'task_id': task_id,
-                'status': 'processing',
-                'progress': '开始创作独立章节...'
-            })
 
         # 统一组装主要角色信息
         if isinstance(main_characters, (list, tuple)):
@@ -71,23 +48,8 @@ def generate_novel_async(task_id, data, socketio_instance):
         else:
             mc_text = str(main_characters) if main_characters is not None else ""
 
-        # 更新进度：开始调用工作流
-        novel_tasks[task_id]["progress"] = "正在启动 CrewAI 工作流..."
-        socketio_instance.emit('novel_task_update', {
-            'task_id': task_id,
-            'status': 'processing',
-            'progress': '正在启动 CrewAI 工作流...'
-        })
-
         # 调用 CrewAI 工作流生成小说
         from app.crew.novel_crew import generate_novel_with_crew
-        
-        novel_tasks[task_id]["progress"] = "正在生成小说内容（可能需要较长时间，请耐心等待）..."
-        socketio_instance.emit('novel_task_update', {
-            'task_id': task_id,
-            'status': 'processing',
-            'progress': '正在生成小说内容（可能需要较长时间，请耐心等待）...'
-        })
         
         result = generate_novel_with_crew(
             worldview=worldview,
@@ -96,19 +58,8 @@ def generate_novel_async(task_id, data, socketio_instance):
             background=background,
             mc_text=mc_text,
             dialogue_content=dialogue_content,
-            history_chapter_id=history_chapter_id,
-            chapter_id=chapter_id,
-            user_id=user_id
+            history_chapter_id=history_chapter_id
         )
-        
-        print(f"任务 {task_id} CrewAI 工作流生成结果：", result)
-        
-        novel_tasks[task_id]["progress"] = "正在保存小说到数据库..."
-        socketio_instance.emit('novel_task_update', {
-            'task_id': task_id,
-            'status': 'processing',
-            'progress': '正在保存小说到数据库...'
-        })
         
         # 更新任务状态为完成
         novel_tasks[task_id].update({
@@ -478,12 +429,6 @@ def generate_novel():
         data = request.get_json()
         if not data or "prompt" not in data:
             return jsonify({"error": "缺少小说生成提示信息"}), 400
-        
-        if not data or "chapter_id" not in data:
-            return jsonify({"error": "缺少chapter_id参数"}), 400
-        
-        if not data or "user_id" not in data:
-            return jsonify({"error": "缺少user_id参数"}), 400
 
         # 生成唯一任务ID
         task_id = str(uuid.uuid4())

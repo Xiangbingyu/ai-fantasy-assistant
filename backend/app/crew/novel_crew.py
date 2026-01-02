@@ -200,9 +200,7 @@ def generate_novel_with_crew(
     background: str,
     mc_text: str,
     dialogue_content: str,
-    history_chapter_id: Optional[str] = None,
-    chapter_id: Optional[int] = None,
-    user_id: Optional[int] = None
+    history_chapter_id: Optional[str] = None
 ) -> str:
     """
     使用 CrewAI 工作流生成小说的便捷函数
@@ -215,8 +213,6 @@ def generate_novel_with_crew(
         mc_text: 主要角色文本
         dialogue_content: 对话内容
         history_chapter_id: 历史章节ID，如果有则视为创作新章节
-        chapter_id: 当前章节ID，用于存储生成的小说
-        user_id: 用户ID，用于存储生成的小说
     
     Returns:
         生成的小说内容

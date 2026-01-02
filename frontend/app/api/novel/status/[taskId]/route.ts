@@ -8,7 +8,7 @@ export async function GET(
     const { taskId } = await params;
     
     // 转发请求到后端
-    const response = await fetch(`http://localhost:4000/api/novel/status/${taskId}`, {
+    const response = await fetch(`http://120.48.16.108:4000/api/novel/status/${taskId}`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
