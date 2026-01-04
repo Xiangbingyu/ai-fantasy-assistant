@@ -6,6 +6,7 @@ from flask_sqlalchemy import SQLAlchemy
 from app.routes.llm import llm_bp
 from app.routes.db import db_bp
 from app.routes.websocket import websocket_bp, socketio
+from app.routes.auto_chat import auto_chat_bp
 from app.models import db
 from app.config import Config
 
@@ -24,6 +25,7 @@ def create_app() -> Flask:
     app.register_blueprint(llm_bp)
     app.register_blueprint(db_bp)
     app.register_blueprint(websocket_bp)
+    app.register_blueprint(auto_chat_bp)
 
     @app.route("/api/status")
     def status():

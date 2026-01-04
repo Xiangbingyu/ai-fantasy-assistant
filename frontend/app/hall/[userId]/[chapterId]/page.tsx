@@ -6,6 +6,7 @@ import io, { Socket } from 'socket.io-client';
 import type { Chapter, ConversationMessage, NovelRecord } from '../../../types/db';
 import WorldPanelComponent from './components/WorldPanelComponent';
 import NovelGenerationComponent from './components/NovelGenerationComponent';
+import AutoPlayComponent from './components/AutoPlayComponent';
 import StoryAnalysisComponent from './components/StoryAnalysisComponent';
 import StoryGuideComponent from './components/StoryGuideComponent';
 import SuggestionsComponent from './components/SuggestionsComponent';
@@ -68,6 +69,8 @@ export default function ChapterPage() {
   const [isNovelModalOpen, setIsNovelModalOpen] = useState<boolean>(false);
   const [storyGuide, setStoryGuide] = useState<string>('');
   const [isSavingGuide, setIsSavingGuide] = useState<boolean>(false);
+  const [isAutoPlaying, setIsAutoPlaying] = useState<boolean>(false);
+  const autoPlayRef = useRef<boolean>(false);
   const [suggestions, setSuggestions] = useState<Array<{ content: string }>>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState<boolean>(false);
   const [suggestionsError, setSuggestionsError] = useState<string | null>(null);
@@ -94,7 +97,7 @@ export default function ChapterPage() {
     });
 
   useEffect(() => {
-    const newSocket = io('http://120.48.16.108:4000');
+    const newSocket = io('http://localhost:4000');
     
     newSocket.on('connect', () => {
       console.log('Connected to WebSocket');
@@ -141,6 +144,100 @@ export default function ChapterPage() {
     setEditingId(tempId);
     setEditText('');
     setTempIdSeq((prev) => prev - 1);
+  };
+
+  const runAutoPlayCycle = async () => {
+    if (!autoPlayRef.current) return;
+
+    try {
+      const history = messages
+        .filter((m) => m.id > 0 && m.content.trim())
+        .map((m) => ({
+          role: m.role,
+          content: m.content,
+        }));
+
+      const chatData = {
+        messages: history,
+        worldview: worldContext?.worldview || '',
+        master_sitting: worldContext?.master_sitting || '',
+        main_characters: worldContext?.main_characters || '',
+        background: chapter?.background || '',
+        story_analysis: currentStoryAnalysis || '',
+        story_guide: storyGuide || '',
+      };
+
+      const aiCharacterRes = await fetch('/api/auto-chat/ai-character', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(chatData),
+      });
+
+      if (!aiCharacterRes.ok) {
+        throw new Error('AI角色扮演者接口调用失败');
+      }
+
+      const aiCharacterData = await aiCharacterRes.json();
+      const aiCharacterContent = aiCharacterData.response;
+
+      const aiCharacterMsg: ConversationMessage = {
+        id: Date.now(),
+        chapter_id: Number(chapterId),
+        user_id: Number(userId),
+        role: 'ai',
+        content: aiCharacterContent,
+        create_time: new Date().toISOString(),
+      };
+
+      setMessages((prev) => sortByIdAsc([...prev, aiCharacterMsg]));
+
+      if (!autoPlayRef.current) return;
+
+      const updatedHistory = [...history, { role: 'assistant', content: aiCharacterContent }];
+      const updatedChatData = {
+        ...chatData,
+        messages: updatedHistory,
+      };
+
+      const aiUserRes = await fetch('/api/auto-chat/ai-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updatedChatData),
+      });
+
+      if (!aiUserRes.ok) {
+        throw new Error('AI用户扮演者接口调用失败');
+      }
+
+      const aiUserData = await aiUserRes.json();
+      const aiUserContent = aiUserData.response;
+
+      const aiUserMsg: ConversationMessage = {
+        id: Date.now() + 1,
+        chapter_id: Number(chapterId),
+        user_id: Number(userId),
+        role: 'user',
+        content: aiUserContent,
+        create_time: new Date().toISOString(),
+      };
+
+      setMessages((prev) => sortByIdAsc([...prev, aiUserMsg]));
+
+      if (autoPlayRef.current) {
+        setTimeout(() => {
+          runAutoPlayCycle();
+        }, 1000);
+      }
+    } catch (error) {
+      console.error('自动播放错误:', error);
+      setIsAutoPlaying(false);
+      autoPlayRef.current = false;
+      addEmptyInputBubble();
+    }
   };
 
   useEffect(() => {
@@ -618,6 +715,25 @@ export default function ChapterPage() {
           overflowY: 'auto',
         }}
       >
+        <AutoPlayComponent
+          isPlaying={isAutoPlaying}
+          onPlay={() => {
+            setIsAutoPlaying(true);
+            autoPlayRef.current = true;
+            if (editingId != null) {
+              setMessages((prev) => prev.filter((m) => m.id !== editingId));
+              setEditingId(null);
+              setEditText('');
+            }
+            runAutoPlayCycle();
+          }}
+          onPause={() => {
+            setIsAutoPlaying(false);
+            autoPlayRef.current = false;
+            addEmptyInputBubble();
+          }}
+        />
+
         <StoryAnalysisComponent
           chapter={chapter}
           chapterId={chapterId}
@@ -637,7 +753,7 @@ export default function ChapterPage() {
         />
       </aside>
     );
-  }, [chapter, chapterId, worldContext, messages, lastAnalysisCount, currentStoryAnalysis, storyGuide, isSavingGuide]);
+  }, [chapter, chapterId, worldContext, messages, lastAnalysisCount, currentStoryAnalysis, storyGuide, isSavingGuide, isAutoPlaying, editingId]);
 
   const suggestionPanel = useMemo(() => {
     return (
