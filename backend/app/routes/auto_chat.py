@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
 from zai import ZhipuAiClient
 from app.config import Config
+from app.models import db, ConversationMessage
 import json
 
 auto_chat_bp = Blueprint('auto_chat', __name__, url_prefix='/api')
@@ -13,6 +14,8 @@ def auto_chat_ai():
     try:
         data = request.get_json(silent=True) or {}
         history = data.get("messages") or []
+        chapter_id = data.get("chapterId")
+        user_id = data.get("userId")
 
         print(data)
 
@@ -98,9 +101,23 @@ def auto_chat_ai():
         print("大模型原始响应：", response)
         print("AI回复内容：", response.choices[0].message.content)
 
-        return jsonify({"response": response.choices[0].message.content})
+        ai_response = response.choices[0].message.content
+
+        if chapter_id and user_id:
+            new_message = ConversationMessage(
+                chapter_id=chapter_id,
+                user_id=user_id,
+                role='ai',
+                content=ai_response
+            )
+            db.session.add(new_message)
+            db.session.commit()
+            print(f"消息已保存到数据库，消息ID: {new_message.id}")
+
+        return jsonify({"response": ai_response})
 
     except Exception as e:
+        db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
 @auto_chat_bp.route("/auto-chat/ai-user", methods=["POST"])
@@ -109,6 +126,8 @@ def auto_chat_user():
     try:
         data = request.get_json(silent=True) or {}
         history = data.get("messages") or []
+        chapter_id = data.get("chapterId")
+        user_id = data.get("userId")
 
         print(data)
 
@@ -194,7 +213,21 @@ def auto_chat_user():
         print("大模型原始响应：", response)
         print("用户回复内容：", response.choices[0].message.content)
 
-        return jsonify({"response": response.choices[0].message.content})
+        user_response = response.choices[0].message.content
+
+        if chapter_id and user_id:
+            new_message = ConversationMessage(
+                chapter_id=chapter_id,
+                user_id=user_id,
+                role='user',
+                content=user_response
+            )
+            db.session.add(new_message)
+            db.session.commit()
+            print(f"消息已保存到数据库，消息ID: {new_message.id}")
+
+        return jsonify({"response": user_response})
 
     except Exception as e:
+        db.session.rollback()
         return jsonify({"error": str(e)}), 500

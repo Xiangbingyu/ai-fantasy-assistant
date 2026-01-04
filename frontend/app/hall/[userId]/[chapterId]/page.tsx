@@ -165,6 +165,8 @@ export default function ChapterPage() {
         background: chapter?.background || '',
         story_analysis: currentStoryAnalysis || '',
         story_guide: storyGuide || '',
+        chapterId: chapterId,
+        userId: userId
       };
 
       const aiCharacterRes = await fetch('/api/auto-chat/ai-character', {
