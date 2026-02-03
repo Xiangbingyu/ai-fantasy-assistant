@@ -5,7 +5,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     
     // 转发请求到后端
-    const response = await fetch('http://120.48.16.108:4000/api/novel', {
+    const response = await fetch('http://180.76.145.127:4000/api/novel', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

@@ -35,7 +35,7 @@ const WorldCreator: React.FC = () => {
   // 建立WebSocket连接
   useEffect(() => {
     // 创建Socket.IO实例连接到后端服务器
-    const newSocket = io('http://120.48.16.108:4000');
+    const newSocket = io('http://180.76.145.127:4000');
 
     // 监听连接事件
     newSocket.on('connect', () => {

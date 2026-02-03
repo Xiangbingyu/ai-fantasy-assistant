@@ -97,7 +97,7 @@ export default function ChapterPage() {
     });
 
   useEffect(() => {
-    const newSocket = io('http://localhost:4000');
+    const newSocket = io('http://180.76.145.127:4000');
     
     newSocket.on('connect', () => {
       console.log('Connected to WebSocket');
